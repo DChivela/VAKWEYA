@@ -1,8 +1,56 @@
-import { CalendarCheck, Menu, X } from 'lucide-react';
+import { CalendarCheck, LogOut, Menu, ShieldCheck, UserCircle, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { assets } from '../data/catalog';
 import { navigationItems } from '../data/navigation';
 
+const userTokenKey = 'vakwetu_user_token';
+const adminTokenKey = 'vakwetu_admin_token';
+const authChangeEvent = 'vakwetu-auth-changed';
+
+function readSessionState() {
+  const hasUserSession = Boolean(localStorage.getItem(userTokenKey));
+  const hasAdminSession = Boolean(localStorage.getItem(adminTokenKey));
+
+  return {
+    hasUserSession,
+    hasAdminSession,
+    isAuthenticated: hasUserSession || hasAdminSession
+  };
+}
+
 export function Header({ menuOpen, setMenuOpen, currentPath }) {
+  const [session, setSession] = useState(readSessionState);
+  const visibleNavigation = navigationItems.filter(
+    (item) => !(session.isAuthenticated && item.path === '/conta')
+  );
+
+  useEffect(() => {
+    function syncSession() {
+      setSession(readSessionState());
+    }
+
+    window.addEventListener('storage', syncSession);
+    window.addEventListener(authChangeEvent, syncSession);
+
+    return () => {
+      window.removeEventListener('storage', syncSession);
+      window.removeEventListener(authChangeEvent, syncSession);
+    };
+  }, []);
+
+  function handleLogout() {
+    localStorage.removeItem(userTokenKey);
+    localStorage.removeItem(adminTokenKey);
+    window.dispatchEvent(new Event(authChangeEvent));
+    setSession(readSessionState());
+    setMenuOpen(false);
+
+    if (currentPath === '/admin' || currentPath === '/conta') {
+      window.history.pushState({}, '', '/');
+      window.dispatchEvent(new Event('popstate'));
+    }
+  }
+
   return (
     <header className="site-header">
       <a className="brand" href="/" aria-label="Vakwetu Weya">
@@ -19,7 +67,7 @@ export function Header({ menuOpen, setMenuOpen, currentPath }) {
       </button>
 
       <nav className={menuOpen ? 'nav nav--open' : 'nav'} aria-label="Navegação principal">
-        {navigationItems.map(({ label, path }) => (
+        {visibleNavigation.map(({ label, path }) => (
           <a
             key={label}
             href={path}
@@ -29,6 +77,20 @@ export function Header({ menuOpen, setMenuOpen, currentPath }) {
             {label}
           </a>
         ))}
+        {session.isAuthenticated && (
+          <a
+            href={session.hasUserSession ? '/conta' : '/admin'}
+            className={
+              currentPath === (session.hasUserSession ? '/conta' : '/admin')
+                ? 'is-active'
+                : ''
+            }
+            onClick={() => setMenuOpen(false)}
+          >
+            {session.hasUserSession ? <UserCircle size={18} /> : <ShieldCheck size={18} />}
+            {session.hasUserSession ? 'Perfil' : 'Admin'}
+          </a>
+        )}
         <a
           className={currentPath === '/reservas' ? 'nav-cta is-active' : 'nav-cta'}
           href="/reservas"
@@ -37,6 +99,12 @@ export function Header({ menuOpen, setMenuOpen, currentPath }) {
           <CalendarCheck size={18} />
           Reservar
         </a>
+        {session.isAuthenticated && (
+          <button className="nav-logout" type="button" onClick={handleLogout}>
+            <LogOut size={18} />
+            Sair
+          </button>
+        )}
       </nav>
     </header>
   );

@@ -16,8 +16,10 @@ import {
   adminLogin,
   createAdminResource,
   deleteAdminResource,
+  deleteAdminUser,
   getAdminOverview,
   getAdminUsers,
+  updateAdminUser,
   updateAdminUserRole,
   updateAdminResource
 } from '../services/api';
@@ -25,6 +27,11 @@ import { FileUploadField } from './FileUploadField';
 import { SectionHeader } from './SectionHeader';
 
 const tokenKey = 'vakwetu_admin_token';
+const authChangeEvent = 'vakwetu-auth-changed';
+
+function emitAuthChange() {
+  window.dispatchEvent(new Event(authChangeEvent));
+}
 
 const resourceConfigs = {
   destinations: {
@@ -269,6 +276,137 @@ function ResourceCreationForm({ activeResource, token, selectedItem, onCancelEdi
   );
 }
 
+function buildUserForm(user) {
+  return {
+    username: user?.username || '',
+    name: user?.name || '',
+    email: user?.email || '',
+    phone: user?.phone || '',
+    avatar: user?.avatar || '',
+    role: user?.role || 'cliente',
+    password: ''
+  };
+}
+
+function UserEditModal({ user, token, onClose, onSaved }) {
+  const [form, setForm] = useState(() => buildUserForm(user));
+  const [status, setStatus] = useState({ type: 'idle', message: '' });
+  const isRootUser = user?.username === 'dchivela';
+
+  function updateField(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setStatus({ type: 'loading', message: 'A guardar alteraÃ§Ãµes...' });
+
+    try {
+      const payload = await updateAdminUser(token, user.id, {
+        ...form,
+        username: isRootUser ? 'dchivela' : form.username,
+        role: isRootUser ? 'admin' : form.role
+      });
+      setStatus({ type: 'success', message: payload.message || 'Utilizador atualizado.' });
+      await onSaved();
+      onClose();
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    }
+  }
+
+  if (!user) {
+    return null;
+  }
+
+  return (
+    <div className="admin-modal-backdrop" role="dialog" aria-modal="true" aria-label="Editar utilizador">
+      <form className="admin-user-modal" onSubmit={handleSubmit}>
+        <div className="admin-user-modal__header">
+          <div>
+            <span>{isRootUser ? 'Conta raiz protegida' : 'Editar utilizador'}</span>
+            <strong>{user.name}</strong>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Fechar modal">
+            <X size={18} />
+          </button>
+        </div>
+
+        <FileUploadField
+          label="Foto de perfil"
+          value={form.avatar}
+          token={token}
+          folder="avatars"
+          compact
+          onChange={(avatar) => setForm((current) => ({ ...current, avatar }))}
+        />
+
+        <div className="form-grid">
+          <label>
+            Nome
+            <input name="name" value={form.name} onChange={updateField} required />
+          </label>
+          <label>
+            UsuÃ¡rio
+            <input
+              name="username"
+              value={form.username}
+              onChange={updateField}
+              disabled={isRootUser}
+              required
+            />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" value={form.email} onChange={updateField} />
+          </label>
+          <label>
+            Telefone
+            <input name="phone" value={form.phone} onChange={updateField} />
+          </label>
+          <label>
+            Tipo
+            <select name="role" value={form.role} onChange={updateField} disabled={isRootUser}>
+              <option value="cliente">Cliente</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </label>
+          <label>
+            Nova palavra-passe
+            <input
+              type="password"
+              name="password"
+              value={form.password}
+              onChange={updateField}
+              minLength="6"
+              autoComplete="new-password"
+              placeholder="Deixar vazio para manter"
+            />
+          </label>
+        </div>
+
+        {isRootUser && (
+          <p className="admin-root-note">
+            A conta dchivela nÃ£o pode ser eliminada, renomeada ou despromovida.
+          </p>
+        )}
+
+        <div className="admin-user-modal__actions">
+          <button className="button button--soft" type="button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="button button--primary" type="submit">
+            <Pencil size={18} />
+            Guardar alteraÃ§Ãµes
+          </button>
+        </div>
+        {status.message && <p className={`form-status form-status--${status.type}`}>{status.message}</p>}
+      </form>
+    </div>
+  );
+}
+
 export function AdminPanel({ catalog, onContentChanged }) {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [token, setToken] = useState(() => localStorage.getItem(tokenKey));
@@ -277,6 +415,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
   const [status, setStatus] = useState({ type: 'idle', message: '' });
   const [activeResource, setActiveResource] = useState('destinations');
   const [selectedItem, setSelectedItem] = useState(null);
+  const [editingUser, setEditingUser] = useState(null);
 
   const catalogCounts = useMemo(
     () => ({
@@ -328,6 +467,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
       .catch((error) => {
         if (!cancelled) {
           localStorage.removeItem(tokenKey);
+          emitAuthChange();
           setToken(null);
           setStatus({ type: 'error', message: error.message });
         }
@@ -350,6 +490,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
     try {
       const data = await adminLogin(credentials);
       localStorage.setItem(tokenKey, data.token);
+      emitAuthChange();
       setToken(data.token);
       setCredentials({ username: '', password: '' });
       setStatus({ type: 'success', message: 'Bem-vindo ao painel.' });
@@ -360,10 +501,12 @@ export function AdminPanel({ catalog, onContentChanged }) {
 
   function logout() {
     localStorage.removeItem(tokenKey);
+    emitAuthChange();
     setToken(null);
     setOverview(null);
     setUsers([]);
     setSelectedItem(null);
+    setEditingUser(null);
     setStatus({ type: 'idle', message: '' });
   }
 
@@ -399,6 +542,39 @@ export function AdminPanel({ catalog, onContentChanged }) {
       const payload = await updateAdminUserRole(token, user.id, role);
       await loadUsers();
       setStatus({ type: 'success', message: payload.message || 'PermissÃ£o atualizada.' });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    }
+  }
+
+  async function handleUserSaved() {
+    await Promise.all([loadUsers(), loadOverview()]);
+  }
+
+  async function handleDeleteUser(user) {
+    if (user.username === 'dchivela') {
+      setStatus({
+        type: 'error',
+        message: 'A conta raiz dchivela nÃ£o pode ser eliminada.'
+      });
+      return;
+    }
+
+    const confirmed = window.confirm(`Eliminar a conta de "${user.name}"?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setStatus({ type: 'loading', message: 'A eliminar utilizador...' });
+
+    try {
+      const payload = await deleteAdminUser(token, user.id);
+      if (editingUser?.id === user.id) {
+        setEditingUser(null);
+      }
+      await handleUserSaved();
+      setStatus({ type: 'success', message: payload.message || 'Utilizador eliminado.' });
     } catch (error) {
       setStatus({ type: 'error', message: error.message });
     }
@@ -597,21 +773,37 @@ export function AdminPanel({ catalog, onContentChanged }) {
                     <strong>{user.name}</strong>
                     <span>@{user.username} Â· {user.email || 'sem email'}</span>
                   </div>
-                  <label className="admin-role-control">
-                    Tipo
-                    <select
-                      value={user.role}
-                      onChange={(event) => handleRoleChange(user, event.target.value)}
+                  <span className={user.role === 'admin' ? 'status-pill status-pill--admin' : 'status-pill'}>
+                    {user.role}
+                  </span>
+                  <div className="admin-item-actions">
+                    <button className="button button--soft" type="button" onClick={() => setEditingUser(user)}>
+                      <Pencil size={16} />
+                      Editar
+                    </button>
+                    <button
+                      className="button button--danger"
+                      type="button"
+                      onClick={() => handleDeleteUser(user)}
+                      disabled={user.username === 'dchivela'}
                     >
-                      <option value="cliente">Cliente</option>
-                      <option value="admin">Administrador</option>
-                    </select>
-                  </label>
+                      <Trash2 size={16} />
+                      {user.username === 'dchivela' ? 'Protegida' : 'Eliminar'}
+                    </button>
+                  </div>
                 </article>
               ))}
               {users.length === 0 && <p className="empty-state">Nenhum utilizador encontrado.</p>}
             </div>
           </section>
+          {editingUser && (
+            <UserEditModal
+              user={editingUser}
+              token={token}
+              onClose={() => setEditingUser(null)}
+              onSaved={handleUserSaved}
+            />
+          )}
         </div>
       )}
     </section>

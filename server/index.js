@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import mysql from 'mysql2/promise';
 import { catalog } from '../src/data/catalog.js';
 
@@ -21,7 +22,9 @@ const demoUsers = [];
 const demoReservations = [];
 const demoContacts = [];
 const demoCatalog = structuredClone(catalog);
-const uploadRoot = path.join(process.cwd(), 'public', 'uploads');
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(serverDir, '..');
+const uploadRoot = path.resolve(process.env.UPLOAD_DIR || path.join(projectRoot, 'public', 'uploads'));
 
 let pool = null;
 
@@ -212,7 +215,7 @@ function normalizeResourcePayload(resource, payload) {
         duration: payload.duration || 'A definir',
         priceFrom: Number(payload.priceFrom || payload.price || 0),
         rating: Number(payload.rating || 4.7),
-        image: payload.image || '/assets/Tundavala.jpg',
+        image: payload.image || '/assets/hero-angola.png',
         summary: payload.summary,
         coordinates: {
           lat: Number(payload.lat || payload.latitude || -8.839),
@@ -1163,6 +1166,109 @@ app.get('/api/admin/users', requireAdmin, async (request, response) => {
   return response.json({ users: rows.map(toPublicUser), source: 'mysql' });
 });
 
+app.put('/api/admin/users/:id', requireAdmin, async (request, response) => {
+  try {
+    const id = Number(request.params.id);
+    const role = request.body.role === 'admin' ? 'admin' : 'cliente';
+    const userData = validateUserPayload(request.body, { requirePassword: false });
+
+    if (!Number.isFinite(id)) {
+      return response.status(422).json({ message: 'ID invÃ¡lido.' });
+    }
+
+    if (!pool) {
+      ensureDemoAdmin();
+      const user = demoUsers.find((item) => Number(item.id) === id);
+
+      if (!user) {
+        return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
+      }
+
+      const isRootUser = user.username === adminUsername;
+      Object.assign(user, {
+        username: isRootUser ? adminUsername : userData.username,
+        name: userData.name,
+        email: userData.email,
+        phone: userData.phone,
+        avatar: userData.avatar,
+        role: isRootUser ? 'admin' : role
+      });
+
+      if (userData.password) {
+        if (String(userData.password).length < 6) {
+          return response.status(422).json({ message: 'A palavra-passe deve ter pelo menos 6 caracteres.' });
+        }
+
+        user.password_hash = hashPassword(userData.password);
+      }
+
+      return response.json({ ok: true, user: toPublicUser(user), message: 'Utilizador atualizado.' });
+    }
+
+    const [currentRows] = await pool.query(
+      'SELECT id, username FROM users WHERE id = :id LIMIT 1',
+      { id }
+    );
+    const currentUser = currentRows[0];
+
+    if (!currentUser) {
+      return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
+    }
+
+    const isRootUser = currentUser.username === adminUsername;
+    const updatePayload = {
+      id,
+      username: isRootUser ? adminUsername : userData.username,
+      name: userData.name,
+      email: userData.email,
+      phone: userData.phone,
+      avatar: userData.avatar,
+      role: isRootUser ? 'admin' : role
+    };
+
+    if (userData.password) {
+      if (String(userData.password).length < 6) {
+        return response.status(422).json({ message: 'A palavra-passe deve ter pelo menos 6 caracteres.' });
+      }
+
+      await pool.query(
+        `UPDATE users SET
+          username = :username,
+          name = :name,
+          email = :email,
+          phone = :phone,
+          avatar = :avatar,
+          role = :role,
+          password_hash = :passwordHash
+         WHERE id = :id`,
+        { ...updatePayload, passwordHash: hashPassword(userData.password) }
+      );
+    } else {
+      await pool.query(
+        `UPDATE users SET
+          username = :username,
+          name = :name,
+          email = :email,
+          phone = :phone,
+          avatar = :avatar,
+          role = :role
+         WHERE id = :id`,
+        updatePayload
+      );
+    }
+
+    const [rows] = await pool.query(
+      'SELECT id, username, name, email, phone, avatar, role FROM users WHERE id = :id LIMIT 1',
+      { id }
+    );
+
+    return response.json({ ok: true, user: toPublicUser(rows[0]), message: 'Utilizador atualizado.' });
+  } catch (error) {
+    const status = error.code === 'ER_DUP_ENTRY' ? 409 : 422;
+    return response.status(status).json({ message: error.message });
+  }
+});
+
 app.patch('/api/admin/users/:id/role', requireAdmin, async (request, response) => {
   const id = Number(request.params.id);
   const role = request.body.role === 'admin' ? 'admin' : 'cliente';
@@ -1183,21 +1289,75 @@ app.patch('/api/admin/users/:id/role', requireAdmin, async (request, response) =
       return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
     }
 
+    if (user.username === adminUsername && role !== 'admin') {
+      return response.status(422).json({ message: 'O administrador raiz dchivela deve permanecer como administrador.' });
+    }
+
     user.role = role;
     return response.json({ ok: true, user: toPublicUser(user), message: 'PermissÃ£o atualizada.' });
   }
 
-  await pool.query('UPDATE users SET role = :role WHERE id = :id', { id, role });
   const [rows] = await pool.query(
     'SELECT id, username, name, email, phone, avatar, role FROM users WHERE id = :id LIMIT 1',
     { id }
   );
+
+  if (rows[0]?.username === adminUsername && role !== 'admin') {
+    return response.status(422).json({ message: 'O administrador raiz dchivela deve permanecer como administrador.' });
+  }
+
+  if (rows[0]) {
+    await pool.query('UPDATE users SET role = :role WHERE id = :id', { id, role });
+    rows[0].role = role;
+  }
 
   if (!rows[0]) {
     return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
   }
 
   return response.json({ ok: true, user: toPublicUser(rows[0]), message: 'PermissÃ£o atualizada.' });
+});
+
+app.delete('/api/admin/users/:id', requireAdmin, async (request, response) => {
+  const id = Number(request.params.id);
+
+  if (!Number.isFinite(id)) {
+    return response.status(422).json({ message: 'ID invÃ¡lido.' });
+  }
+
+  if (!pool) {
+    ensureDemoAdmin();
+    const index = demoUsers.findIndex((user) => Number(user.id) === id);
+    const user = demoUsers[index];
+
+    if (!user) {
+      return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
+    }
+
+    if (user.username === adminUsername) {
+      return response.status(422).json({ message: 'O administrador raiz dchivela nÃ£o pode ser eliminado.' });
+    }
+
+    demoUsers.splice(index, 1);
+    return response.json({ ok: true, message: 'Utilizador eliminado.' });
+  }
+
+  const [rows] = await pool.query(
+    'SELECT id, username FROM users WHERE id = :id LIMIT 1',
+    { id }
+  );
+  const user = rows[0];
+
+  if (!user) {
+    return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
+  }
+
+  if (user.username === adminUsername) {
+    return response.status(422).json({ message: 'O administrador raiz dchivela nÃ£o pode ser eliminado.' });
+  }
+
+  await pool.query('DELETE FROM users WHERE id = :id', { id });
+  return response.json({ ok: true, message: 'Utilizador eliminado.' });
 });
 
 app.get('/api/admin/overview', requireAdmin, async (request, response) => {

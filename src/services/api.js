@@ -125,10 +125,25 @@ export async function getAdminUsers(token) {
   return request('/admin/users', { token });
 }
 
+export async function updateAdminUser(token, id, data) {
+  return request(`/admin/users/${id}`, {
+    method: 'PUT',
+    token,
+    body: data
+  });
+}
+
 export async function updateAdminUserRole(token, id, role) {
   return request(`/admin/users/${id}/role`, {
     method: 'PATCH',
     token,
     body: { role }
+  });
+}
+
+export async function deleteAdminUser(token, id) {
+  return request(`/admin/users/${id}`, {
+    method: 'DELETE',
+    token
   });
 }

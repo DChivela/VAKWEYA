@@ -5,6 +5,7 @@ import { FileUploadField } from './FileUploadField';
 import { SectionHeader } from './SectionHeader';
 
 const authTokenKey = 'vakwetu_user_token';
+const authChangeEvent = 'vakwetu-auth-changed';
 
 const emptyLogin = {
   username: '',
@@ -19,6 +20,10 @@ const emptyRegister = {
   password: '',
   avatar: ''
 };
+
+function emitAuthChange() {
+  window.dispatchEvent(new Event(authChangeEvent));
+}
 
 export function AccountPanel() {
   const [mode, setMode] = useState('login');
@@ -44,6 +49,7 @@ export function AccountPanel() {
       .catch((error) => {
         if (!cancelled) {
           localStorage.removeItem(authTokenKey);
+          emitAuthChange();
           setToken(null);
           setStatus({ type: 'error', message: error.message });
         }
@@ -71,6 +77,7 @@ export function AccountPanel() {
     try {
       const payload = await loginUser(loginForm);
       localStorage.setItem(authTokenKey, payload.token);
+      emitAuthChange();
       setToken(payload.token);
       setUser(payload.user);
       setLoginForm(emptyLogin);
@@ -87,6 +94,7 @@ export function AccountPanel() {
     try {
       const payload = await registerUser(registerForm);
       localStorage.setItem(authTokenKey, payload.token);
+      emitAuthChange();
       setToken(payload.token);
       setUser(payload.user);
       setRegisterForm(emptyRegister);
@@ -98,6 +106,7 @@ export function AccountPanel() {
 
   function logout() {
     localStorage.removeItem(authTokenKey);
+    emitAuthChange();
     setToken(null);
     setUser(null);
     setStatus({ type: 'idle', message: '' });
@@ -164,7 +173,7 @@ export function AccountPanel() {
           {mode === 'login' ? (
             <form className="account-form" onSubmit={handleLogin}>
               <label>
-                Usuário
+                Usuário (nome de utilizador)
                 <input
                   name="username"
                   value={loginForm.username}
@@ -203,7 +212,7 @@ export function AccountPanel() {
                   <input name="name" value={registerForm.name} onChange={updateRegisterField} required />
                 </label>
                 <label>
-                  Usuário
+                  Usuário (nome de utilizador)
                   <input
                     name="username"
                     value={registerForm.username}
