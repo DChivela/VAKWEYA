@@ -5,6 +5,7 @@ import { catalog as localCatalog } from './data/catalog';
 import { routePaths } from './data/navigation';
 import {
   AboutPage,
+  AccountPage,
   AdminPage,
   ContactPage,
   DestinationsPage,
@@ -110,6 +111,8 @@ export default function App() {
         return <AboutPage />;
       case '/contacto':
         return <ContactPage />;
+      case '/conta':
+        return <AccountPage />;
       case '/mapa':
         return <MapPage data={data} />;
       case '/admin':

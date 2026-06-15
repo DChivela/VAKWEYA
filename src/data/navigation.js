@@ -5,6 +5,7 @@ export const navigationItems = [
   { label: 'Restaurantes', path: '/restaurantes' },
   { label: 'Tours', path: '/tours' },
   { label: 'Roteiros', path: '/roteiros' },
+  { label: 'Conta', path: '/conta' },
   { label: 'Sobre', path: '/sobre' },
   { label: 'Contacto', path: '/contacto' }
 ];
@@ -18,6 +19,7 @@ export const routePaths = [
   '/roteiros',
   '/reservas',
   '/depoimentos',
+  '/conta',
   '/sobre',
   '/contacto',
   '/mapa',

@@ -4,6 +4,8 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import mysql from 'mysql2/promise';
 import { catalog } from '../src/data/catalog.js';
 
@@ -15,9 +17,11 @@ const dbName = process.env.DB_NAME || 'WEYA';
 const adminUsername = process.env.ADMIN_USERNAME || 'dchivela';
 const adminPassword = process.env.ADMIN_PASSWORD || '#focus2024';
 const sessions = new Map();
+const demoUsers = [];
 const demoReservations = [];
 const demoContacts = [];
 const demoCatalog = structuredClone(catalog);
+const uploadRoot = path.join(process.cwd(), 'public', 'uploads');
 
 let pool = null;
 
@@ -27,7 +31,8 @@ app.use(
     origin: process.env.CLIENT_ORIGIN || 'http://127.0.0.1:5173'
   })
 );
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '8mb' }));
+app.use('/uploads', express.static(uploadRoot));
 app.use(
   rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -55,6 +60,99 @@ function verifyPassword(password, storedHash) {
     .toString('hex');
 
   return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
+}
+
+function sanitizeUser(user) {
+  if (!user) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    avatar: user.avatar,
+    role: user.role
+  };
+}
+
+function createSession(user) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const safeUser = sanitizeUser(user);
+
+  sessions.set(token, {
+    ...safeUser,
+    expiresAt: Date.now() + 1000 * 60 * 60 * 8
+  });
+
+  return { token, user: safeUser };
+}
+
+function requireAuth(request, response, next) {
+  const token = request.headers.authorization?.replace('Bearer ', '');
+  const session = token ? sessions.get(token) : null;
+
+  if (!session || session.expiresAt < Date.now()) {
+    return response.status(401).json({ message: 'Sessão expirada. Faça login novamente.' });
+  }
+
+  request.user = session;
+  return next();
+}
+
+function toPublicUser(row) {
+  return sanitizeUser({
+    id: row.id,
+    username: row.username,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    avatar: row.avatar,
+    role: row.role
+  });
+}
+
+function normalizeUploadFolder(value) {
+  const folder = String(value || 'general')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '');
+
+  return folder || 'general';
+}
+
+async function saveDataUrlImage({ dataUrl, filename, folder = 'general' }) {
+  const match = String(dataUrl || '').match(/^data:(image\/(?:png|jpe?g|webp));base64,([a-zA-Z0-9+/=]+)$/);
+
+  if (!match) {
+    throw new Error('Envie uma imagem PNG, JPG ou WebP válida.');
+  }
+
+  const [, mimeType, base64] = match;
+  const buffer = Buffer.from(base64, 'base64');
+  const maxBytes = 5 * 1024 * 1024;
+
+  if (buffer.length > maxBytes) {
+    throw new Error('A imagem deve ter no máximo 5 MB.');
+  }
+
+  const extensionByMime = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp'
+  };
+  const extension = extensionByMime[mimeType];
+  const safeFolder = normalizeUploadFolder(folder);
+  const safeName = slugify(path.parse(filename || 'imagem').name) || 'imagem';
+  const storedName = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${safeName}.${extension}`;
+  const uploadDir = path.join(uploadRoot, safeFolder);
+
+  await fs.mkdir(uploadDir, { recursive: true });
+  await fs.writeFile(path.join(uploadDir, storedName), buffer);
+
+  return `/uploads/${safeFolder}/${storedName}`;
 }
 
 function normalizeNumber(value) {
@@ -114,7 +212,7 @@ function normalizeResourcePayload(resource, payload) {
         duration: payload.duration || 'A definir',
         priceFrom: Number(payload.priceFrom || payload.price || 0),
         rating: Number(payload.rating || 4.7),
-        image: payload.image || '/assets/hero-angola.png',
+        image: payload.image || '/assets/Tundavala.jpg',
         summary: payload.summary,
         coordinates: {
           lat: Number(payload.lat || payload.latitude || -8.839),
@@ -351,6 +449,24 @@ async function updateResource(resource, id, item) {
   }
 }
 
+async function deleteResource(resource, id) {
+  const tables = {
+    destinations: 'destinations',
+    hotels: 'hotels',
+    restaurants: 'restaurants',
+    tours: 'tours',
+    itineraries: 'itineraries',
+    testimonials: 'testimonials'
+  };
+  const table = tables[resource];
+
+  if (!table) {
+    throw new Error('Tipo de conteÃºdo invÃ¡lido.');
+  }
+
+  await pool.query(`UPDATE ${table} SET active = 0 WHERE id = :resourceId`, { resourceId: id });
+}
+
 async function connectDatabase() {
   try {
     const rootConnection = await mysql.createConnection({
@@ -393,6 +509,7 @@ async function initializeSchema() {
       name VARCHAR(180) NOT NULL,
       email VARCHAR(180) NULL,
       phone VARCHAR(40) NULL,
+      avatar VARCHAR(255) NULL,
       password_hash VARCHAR(255) NOT NULL,
       role ENUM('admin','cliente') NOT NULL DEFAULT 'cliente',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -522,9 +639,17 @@ async function initializeSchema() {
     await pool.query(statement);
   }
 
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN avatar VARCHAR(255) NULL AFTER phone');
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') {
+      throw error;
+    }
+  }
+
   await pool.query(
-    `INSERT INTO users (username, name, email, password_hash, role)
-     VALUES (:username, 'Administrador Raiz', 'admin@vakwetuweya.ao', :passwordHash, 'admin')
+    `INSERT INTO users (username, name, email, avatar, password_hash, role)
+     VALUES (:username, 'Administrador Raiz', 'admin@vakwetuweya.ao', NULL, :passwordHash, 'admin')
      ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), role = 'admin'`,
     {
       username: adminUsername,
@@ -682,8 +807,72 @@ function requireAdmin(request, response, next) {
     return response.status(401).json({ message: 'Sessão expirada. Faça login novamente.' });
   }
 
+  if (session.role !== 'admin') {
+    return response.status(403).json({ message: 'Apenas administradores podem alterar conteúdos.' });
+  }
+
   request.admin = session;
   return next();
+}
+
+function validateUserPayload(payload, { requirePassword = true } = {}) {
+  ensureRequired(payload, ['username', 'name']);
+
+  if (requirePassword && String(payload.password || '').length < 6) {
+    throw new Error('A palavra-passe deve ter pelo menos 6 caracteres.');
+  }
+
+  return {
+    username: String(payload.username).trim().toLowerCase(),
+    name: String(payload.name).trim(),
+    email: payload.email ? String(payload.email).trim().toLowerCase() : null,
+    phone: payload.phone ? String(payload.phone).trim() : null,
+    avatar: payload.avatar || null,
+    password: payload.password
+  };
+}
+
+function ensureDemoAdmin() {
+  if (demoUsers.some((user) => user.username === adminUsername)) {
+    return;
+  }
+
+  demoUsers.push({
+    id: 1,
+    username: adminUsername,
+    name: 'Administrador Raiz',
+    email: 'admin@vakwetuweya.ao',
+    phone: null,
+    avatar: null,
+    password_hash: hashPassword(adminPassword, 'vakwetu-root-2026'),
+    role: 'admin'
+  });
+}
+
+async function findUserByUsername(username) {
+  const normalizedUsername = String(username || '').trim().toLowerCase();
+
+  if (!pool) {
+    ensureDemoAdmin();
+    return demoUsers.find((user) => user.username === normalizedUsername);
+  }
+
+  const [rows] = await pool.query(
+    'SELECT id, username, name, email, phone, avatar, password_hash, role FROM users WHERE username = :username LIMIT 1',
+    { username: normalizedUsername }
+  );
+
+  return rows[0];
+}
+
+async function authenticateUser(username, password) {
+  const user = await findUserByUsername(username);
+
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    return null;
+  }
+
+  return user;
 }
 
 app.get('/api/health', (request, response) => {
@@ -700,6 +889,79 @@ app.get('/api/catalog', async (request, response) => {
   } catch (error) {
     return response.json({ ...demoCatalog, source: 'local', warning: error.message });
   }
+});
+
+app.post('/api/uploads', async (request, response) => {
+  try {
+    const url = await saveDataUrlImage(request.body);
+    return response.status(201).json({ ok: true, url });
+  } catch (error) {
+    return response.status(422).json({ message: error.message });
+  }
+});
+
+app.post('/api/auth/register', async (request, response) => {
+  try {
+    const userData = validateUserPayload(request.body);
+
+    if (!pool) {
+      ensureDemoAdmin();
+
+      if (
+        demoUsers.some(
+          (user) =>
+            user.username === userData.username ||
+            (userData.email && user.email === userData.email)
+        )
+      ) {
+        return response.status(409).json({ message: 'Este usuário ou email já existe.' });
+      }
+
+      const user = {
+        id: Date.now(),
+        username: userData.username,
+        name: userData.name,
+        email: userData.email,
+        phone: userData.phone,
+        avatar: userData.avatar,
+        password_hash: hashPassword(userData.password),
+        role: 'cliente'
+      };
+      demoUsers.push(user);
+
+      return response.status(201).json(createSession(user));
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO users (username, name, email, phone, avatar, password_hash, role)
+       VALUES (:username, :name, :email, :phone, :avatar, :passwordHash, 'cliente')`,
+      {
+        ...userData,
+        passwordHash: hashPassword(userData.password)
+      }
+    );
+    const user = { ...userData, id: result.insertId, role: 'cliente' };
+
+    return response.status(201).json(createSession(user));
+  } catch (error) {
+    const status = error.code === 'ER_DUP_ENTRY' ? 409 : 422;
+    return response.status(status).json({ message: error.message });
+  }
+});
+
+app.post('/api/auth/login', async (request, response) => {
+  const { username, password } = request.body;
+  const user = await authenticateUser(username, password);
+
+  if (!user) {
+    return response.status(401).json({ message: 'Credenciais inválidas.' });
+  }
+
+  return response.json(createSession(user));
+});
+
+app.get('/api/auth/me', requireAuth, (request, response) => {
+  return response.json({ user: sanitizeUser(request.user) });
 });
 
 app.post('/api/reservations', async (request, response) => {
@@ -773,28 +1035,13 @@ app.post('/api/contacts', async (request, response) => {
 
 app.post('/api/admin/login', async (request, response) => {
   const { username, password } = request.body;
-  let allowed = username === adminUsername && password === adminPassword;
+  const user = await authenticateUser(username, password);
 
-  if (pool) {
-    const [rows] = await pool.query(
-      'SELECT username, password_hash, role FROM users WHERE username = :username LIMIT 1',
-      { username }
-    );
-    const user = rows[0];
-    allowed = Boolean(user && user.role === 'admin' && verifyPassword(password, user.password_hash));
-  }
-
-  if (!allowed) {
+  if (!user || user.role !== 'admin') {
     return response.status(401).json({ message: 'Credenciais inválidas.' });
   }
 
-  const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, {
-    username,
-    expiresAt: Date.now() + 1000 * 60 * 60 * 8
-  });
-
-  return response.json({ token, username });
+  return response.json(createSession(user));
 });
 
 app.post('/api/admin/content/:resource', requireAdmin, async (request, response) => {
@@ -872,13 +1119,97 @@ app.put('/api/admin/content/:resource/:id', requireAdmin, async (request, respon
   }
 });
 
+app.delete('/api/admin/content/:resource/:id', requireAdmin, async (request, response) => {
+  try {
+    const { resource } = request.params;
+    const id = Number(request.params.id);
+
+    if (!Object.hasOwn(demoCatalog, resource)) {
+      return response.status(404).json({ message: 'Separador administrativo invÃ¡lido.' });
+    }
+
+    if (!Number.isFinite(id)) {
+      return response.status(422).json({ message: 'ID invÃ¡lido.' });
+    }
+
+    if (!pool) {
+      const index = demoCatalog[resource].findIndex((entry) => Number(entry.id) === id);
+
+      if (index < 0) {
+        return response.status(404).json({ message: 'Registo nÃ£o encontrado.' });
+      }
+
+      demoCatalog[resource].splice(index, 1);
+      return response.json({ ok: true, demo: true, message: 'ConteÃºdo eliminado em modo demonstraÃ§Ã£o.' });
+    }
+
+    await deleteResource(resource, id);
+    return response.json({ ok: true, message: 'ConteÃºdo eliminado.' });
+  } catch (error) {
+    return response.status(422).json({ message: error.message });
+  }
+});
+
+app.get('/api/admin/users', requireAdmin, async (request, response) => {
+  if (!pool) {
+    ensureDemoAdmin();
+    return response.json({ users: demoUsers.map(toPublicUser), source: 'demo' });
+  }
+
+  const [rows] = await pool.query(
+    'SELECT id, username, name, email, phone, avatar, role, created_at FROM users ORDER BY created_at DESC, id DESC'
+  );
+
+  return response.json({ users: rows.map(toPublicUser), source: 'mysql' });
+});
+
+app.patch('/api/admin/users/:id/role', requireAdmin, async (request, response) => {
+  const id = Number(request.params.id);
+  const role = request.body.role === 'admin' ? 'admin' : 'cliente';
+
+  if (!Number.isFinite(id)) {
+    return response.status(422).json({ message: 'ID invÃ¡lido.' });
+  }
+
+  if (Number(request.user.id) === id && role !== 'admin') {
+    return response.status(422).json({ message: 'NÃ£o pode remover o privilÃ©gio da prÃ³pria sessÃ£o.' });
+  }
+
+  if (!pool) {
+    ensureDemoAdmin();
+    const user = demoUsers.find((item) => Number(item.id) === id);
+
+    if (!user) {
+      return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
+    }
+
+    user.role = role;
+    return response.json({ ok: true, user: toPublicUser(user), message: 'PermissÃ£o atualizada.' });
+  }
+
+  await pool.query('UPDATE users SET role = :role WHERE id = :id', { id, role });
+  const [rows] = await pool.query(
+    'SELECT id, username, name, email, phone, avatar, role FROM users WHERE id = :id LIMIT 1',
+    { id }
+  );
+
+  if (!rows[0]) {
+    return response.status(404).json({ message: 'Utilizador nÃ£o encontrado.' });
+  }
+
+  return response.json({ ok: true, user: toPublicUser(rows[0]), message: 'PermissÃ£o atualizada.' });
+});
+
 app.get('/api/admin/overview', requireAdmin, async (request, response) => {
   if (!pool) {
+    ensureDemoAdmin();
+
     return response.json({
       metrics: {
         reservations: demoReservations.length,
         contacts: demoContacts.length,
         pending: demoReservations.filter((item) => item.status === 'pendente').length,
+        users: demoUsers.length,
         contents:
           demoCatalog.destinations.length +
           demoCatalog.hotels.length +
@@ -895,6 +1226,7 @@ app.get('/api/admin/overview', requireAdmin, async (request, response) => {
 
   const [[reservationCount]] = await pool.query('SELECT COUNT(*) AS total FROM reservations');
   const [[contactCount]] = await pool.query('SELECT COUNT(*) AS total FROM contacts');
+  const [[userCount]] = await pool.query('SELECT COUNT(*) AS total FROM users');
   const [[pendingCount]] = await pool.query(
     "SELECT COUNT(*) AS total FROM reservations WHERE status = 'pendente'"
   );
@@ -925,6 +1257,7 @@ app.get('/api/admin/overview', requireAdmin, async (request, response) => {
       reservations: reservationCount.total,
       contacts: contactCount.total,
       pending: pendingCount.total,
+      users: userCount.total,
       contents: Object.values(contentCounts[0]).reduce((sum, total) => sum + Number(total), 0)
     },
     contentCounts: contentCounts[0],

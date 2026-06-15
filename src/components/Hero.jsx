@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarCheck, MapPinned, PlayCircle } from 'lucide-react';
+import { ArrowRight, CalendarCheck, MapPinned, PlayCircle, UserPlus } from 'lucide-react';
 import { assets } from '../data/catalog';
 
 export function Hero({ stats }) {
@@ -22,6 +22,10 @@ export function Hero({ stats }) {
             <a className="button button--ghost" href="/destinos">
               <MapPinned size={19} />
               Ver destinos
+            </a>
+            <a className="button button--ghost" href="/conta">
+              <UserPlus size={19} />
+              Criar conta
             </a>
           </div>
         </div>

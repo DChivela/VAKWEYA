@@ -45,6 +45,32 @@ export async function createReservation(data) {
   }
 }
 
+export async function uploadImage(data, token) {
+  return request('/uploads', {
+    method: 'POST',
+    token,
+    body: data
+  });
+}
+
+export async function registerUser(data) {
+  return request('/auth/register', {
+    method: 'POST',
+    body: data
+  });
+}
+
+export async function loginUser(data) {
+  return request('/auth/login', {
+    method: 'POST',
+    body: data
+  });
+}
+
+export async function getCurrentUser(token) {
+  return request('/auth/me', { token });
+}
+
 export async function sendContactMessage(data) {
   try {
     return await request('/contacts', {
@@ -85,5 +111,24 @@ export async function updateAdminResource(token, resource, id, data) {
     method: 'PUT',
     token,
     body: data
+  });
+}
+
+export async function deleteAdminResource(token, resource, id) {
+  return request(`/admin/content/${resource}/${id}`, {
+    method: 'DELETE',
+    token
+  });
+}
+
+export async function getAdminUsers(token) {
+  return request('/admin/users', { token });
+}
+
+export async function updateAdminUserRole(token, id, role) {
+  return request(`/admin/users/${id}/role`, {
+    method: 'PATCH',
+    token,
+    body: { role }
   });
 }

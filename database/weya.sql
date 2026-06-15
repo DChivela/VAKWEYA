@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
   name VARCHAR(180) NOT NULL,
   email VARCHAR(180) NULL,
   phone VARCHAR(40) NULL,
+  avatar VARCHAR(255) NULL,
   password_hash VARCHAR(255) NOT NULL,
   role ENUM('admin','cliente') NOT NULL DEFAULT 'cliente',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

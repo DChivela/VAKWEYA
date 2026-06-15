@@ -1,11 +1,27 @@
-import { Layers3, LockKeyhole, LogOut, Pencil, Plus, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import {
+  Layers3,
+  LockKeyhole,
+  LogOut,
+  Pencil,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  UserCheck,
+  Users,
+  X
+} from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   adminLogin,
   createAdminResource,
+  deleteAdminResource,
   getAdminOverview,
+  getAdminUsers,
+  updateAdminUserRole,
   updateAdminResource
 } from '../services/api';
+import { FileUploadField } from './FileUploadField';
 import { SectionHeader } from './SectionHeader';
 
 const tokenKey = 'vakwetu_admin_token';
@@ -22,7 +38,7 @@ const resourceConfigs = {
       { name: 'duration', label: 'Duração', placeholder: '3 dias' },
       { name: 'priceFrom', label: 'Preço desde', type: 'number', placeholder: '145000' },
       { name: 'rating', label: 'Avaliação', type: 'number', step: '0.1', placeholder: '4.9' },
-      { name: 'image', label: 'Imagem', placeholder: '/assets/hero-angola.png' },
+      { name: 'image', label: 'Imagem', upload: true },
       { name: 'summary', label: 'Resumo', textarea: true, required: true },
       { name: 'lat', label: 'Latitude', type: 'number', step: '0.000001', placeholder: '-14.917' },
       { name: 'lng', label: 'Longitude', type: 'number', step: '0.000001', placeholder: '13.492' },
@@ -37,7 +53,7 @@ const resourceConfigs = {
       { name: 'destination', label: 'Destino', required: true },
       { name: 'price', label: 'Preço por noite', type: 'number' },
       { name: 'rating', label: 'Avaliação', type: 'number', step: '0.1' },
-      { name: 'image', label: 'Imagem', placeholder: '/assets/eco-lodge.png' },
+      { name: 'image', label: 'Imagem', upload: true },
       { name: 'description', label: 'Descrição', textarea: true, required: true },
       { name: 'amenities', label: 'Comodidades', placeholder: 'Wi-Fi, Pequeno-almoço, Transfer' }
     ]
@@ -51,7 +67,7 @@ const resourceConfigs = {
       { name: 'cuisine', label: 'Cozinha', placeholder: 'Angolana contemporânea' },
       { name: 'price', label: 'Preço médio', type: 'number' },
       { name: 'rating', label: 'Avaliação', type: 'number', step: '0.1' },
-      { name: 'image', label: 'Imagem', placeholder: '/assets/eco-lodge.png' },
+      { name: 'image', label: 'Imagem', upload: true },
       { name: 'description', label: 'Descrição', textarea: true, required: true }
     ]
   },
@@ -64,7 +80,7 @@ const resourceConfigs = {
       { name: 'duration', label: 'Duração', placeholder: '5 horas' },
       { name: 'price', label: 'Preço', type: 'number' },
       { name: 'rating', label: 'Avaliação', type: 'number', step: '0.1' },
-      { name: 'image', label: 'Imagem', placeholder: '/assets/waterfall-tour.png' },
+      { name: 'image', label: 'Imagem', upload: true },
       { name: 'description', label: 'Descrição', textarea: true, required: true }
     ]
   },
@@ -149,6 +165,10 @@ function ResourceCreationForm({ activeResource, token, selectedItem, onCancelEdi
     setForm((current) => ({ ...current, [name]: value }));
   }
 
+  function updateFormValue(name, value) {
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setStatus({
@@ -200,9 +220,20 @@ function ResourceCreationForm({ activeResource, token, selectedItem, onCancelEdi
 
       <div className="form-grid">
         {config.fields.map((field) => (
-          <label key={field.name} className={field.textarea ? 'field-wide' : ''}>
-            {field.label}
-            {field.textarea ? (
+          field.upload ? (
+            <div key={field.name} className="field-wide">
+              <FileUploadField
+                label={field.label}
+                value={form[field.name]}
+                token={token}
+                folder={activeResource}
+                onChange={(value) => updateFormValue(field.name, value)}
+              />
+            </div>
+          ) : (
+            <label key={field.name} className={field.textarea ? 'field-wide' : ''}>
+              {field.label}
+              {field.textarea ? (
               <textarea
                 name={field.name}
                 value={form[field.name]}
@@ -211,7 +242,7 @@ function ResourceCreationForm({ activeResource, token, selectedItem, onCancelEdi
                 required={field.required}
                 rows="4"
               />
-            ) : (
+              ) : (
               <input
                 name={field.name}
                 type={field.type || 'text'}
@@ -223,8 +254,9 @@ function ResourceCreationForm({ activeResource, token, selectedItem, onCancelEdi
                 max={field.max}
                 step={field.step}
               />
-            )}
-          </label>
+              )}
+            </label>
+          )
         ))}
       </div>
 
@@ -241,6 +273,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [token, setToken] = useState(() => localStorage.getItem(tokenKey));
   const [overview, setOverview] = useState(null);
+  const [users, setUsers] = useState([]);
   const [status, setStatus] = useState({ type: 'idle', message: '' });
   const [activeResource, setActiveResource] = useState('destinations');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -269,14 +302,24 @@ export function AdminPanel({ catalog, onContentChanged }) {
     setStatus({ type: 'success', message: 'Sessão administrativa ativa.' });
   }, [token]);
 
+  const loadUsers = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
+    const data = await getAdminUsers(token);
+    setUsers(data.users || []);
+  }, [token]);
+
   useEffect(() => {
     if (!token) {
       setOverview(null);
+      setUsers([]);
       return;
     }
 
     let cancelled = false;
-    loadOverview()
+    Promise.all([loadOverview(), loadUsers()])
       .then(() => {
         if (!cancelled) {
           setStatus((current) => current);
@@ -293,7 +336,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
     return () => {
       cancelled = true;
     };
-  }, [loadOverview, token]);
+  }, [loadOverview, loadUsers, token]);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -319,12 +362,46 @@ export function AdminPanel({ catalog, onContentChanged }) {
     localStorage.removeItem(tokenKey);
     setToken(null);
     setOverview(null);
+    setUsers([]);
     setSelectedItem(null);
     setStatus({ type: 'idle', message: '' });
   }
 
   async function handleContentSaved() {
     await Promise.all([loadOverview(), onContentChanged?.()]);
+  }
+
+  async function handleDeleteContent(item) {
+    const confirmed = window.confirm(`Eliminar "${item.name}" deste separador?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setStatus({ type: 'loading', message: 'A eliminar conteÃºdo...' });
+
+    try {
+      const payload = await deleteAdminResource(token, activeResource, item.id);
+      if (selectedItem?.id === item.id) {
+        setSelectedItem(null);
+      }
+      await handleContentSaved();
+      setStatus({ type: 'success', message: payload.message || 'ConteÃºdo eliminado.' });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    }
+  }
+
+  async function handleRoleChange(user, role) {
+    setStatus({ type: 'loading', message: 'A atualizar permissÃµes...' });
+
+    try {
+      const payload = await updateAdminUserRole(token, user.id, role);
+      await loadUsers();
+      setStatus({ type: 'success', message: payload.message || 'PermissÃ£o atualizada.' });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    }
   }
 
   function changeResource(resource) {
@@ -398,6 +475,10 @@ export function AdminPanel({ catalog, onContentChanged }) {
               <strong>{overview?.metrics?.pending ?? 0}</strong>
             </div>
             <div>
+              <span>Utilizadores</span>
+              <strong>{overview?.metrics?.users ?? users.length}</strong>
+            </div>
+            <div>
               <span>Conteúdos</span>
               <strong>{Object.values(catalogCounts).reduce((sum, total) => sum + total, 0)}</strong>
             </div>
@@ -463,6 +544,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
                       key={item.id}
                       className={selectedItem?.id === item.id ? 'is-selected' : ''}
                     >
+                      {item.image && <img className="admin-item-thumb" src={item.image} alt="" />}
                       <div>
                         <strong>{item.name}</strong>
                         <span>
@@ -474,14 +556,24 @@ export function AdminPanel({ catalog, onContentChanged }) {
                             'Conteúdo'}
                         </span>
                       </div>
-                      <button
-                        className="button button--soft"
-                        type="button"
-                        onClick={() => setSelectedItem(item)}
-                      >
-                        <Pencil size={16} />
-                        Editar
-                      </button>
+                      <div className="admin-item-actions">
+                        <button
+                          className="button button--soft"
+                          type="button"
+                          onClick={() => setSelectedItem(item)}
+                        >
+                          <Pencil size={16} />
+                          Editar
+                        </button>
+                        <button
+                          className="button button--danger"
+                          type="button"
+                          onClick={() => handleDeleteContent(item)}
+                        >
+                          <Trash2 size={16} />
+                          Eliminar
+                        </button>
+                      </div>
                     </article>
                   ))}
                   {activeItems.length === 0 && (
@@ -491,6 +583,35 @@ export function AdminPanel({ catalog, onContentChanged }) {
               </div>
             </div>
           </div>
+
+          <section className="admin-users-panel">
+            <div className="admin-section-title">
+              <Users size={18} />
+              <strong>GestÃ£o de utilizadores</strong>
+            </div>
+            <div className="admin-user-list">
+              {users.map((user) => (
+                <article key={user.id}>
+                  <img src={user.avatar || '/assets/logo-vakwetu.png'} alt="" />
+                  <div>
+                    <strong>{user.name}</strong>
+                    <span>@{user.username} Â· {user.email || 'sem email'}</span>
+                  </div>
+                  <label className="admin-role-control">
+                    Tipo
+                    <select
+                      value={user.role}
+                      onChange={(event) => handleRoleChange(user, event.target.value)}
+                    >
+                      <option value="cliente">Cliente</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                  </label>
+                </article>
+              ))}
+              {users.length === 0 && <p className="empty-state">Nenhum utilizador encontrado.</p>}
+            </div>
+          </section>
         </div>
       )}
     </section>

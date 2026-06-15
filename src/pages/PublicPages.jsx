@@ -1,4 +1,6 @@
 import { CalendarCheck, Clock, Map, Route } from 'lucide-react';
+import { AccountPanel } from '../components/AccountPanel';
+import { AccountTeaser } from '../components/AccountTeaser';
 import { AboutSection } from '../components/AboutSection';
 import { AdminPanel } from '../components/AdminPanel';
 import { BookingForm } from '../components/BookingForm';
@@ -18,6 +20,7 @@ export function HomePage({ data }) {
   return (
     <>
       <Hero stats={data.stats} />
+      <AccountTeaser />
       <Destinations destinations={data.destinations} />
       <Services hotels={data.hotels} restaurants={data.restaurants} tours={data.tours} />
       <InteractiveMap destinations={data.destinations} />
@@ -293,6 +296,20 @@ export function ContactPage() {
         image={assets.lodge}
       />
       <ContactSection />
+    </>
+  );
+}
+
+export function AccountPage() {
+  return (
+    <>
+      <PageHero
+        eyebrow="Conta"
+        title="Entra, guarda o teu perfil e viaja melhor"
+        text="Uma área simples para criar conta, usar foto de perfil e preparar futuras reservas."
+        image={assets.hero}
+      />
+      <AccountPanel />
     </>
   );
 }
