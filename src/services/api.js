@@ -1,0 +1,89 @@
+import { catalog } from '../data/catalog';
+
+const API_BASE = '/api';
+
+async function request(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+    },
+    ...options,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload.message || 'Não foi possível concluir a ação.');
+  }
+
+  return payload;
+}
+
+export async function getCatalog() {
+  try {
+    return await request('/catalog');
+  } catch (error) {
+    return { ...catalog, source: 'local' };
+  }
+}
+
+export async function createReservation(data) {
+  try {
+    return await request('/reservations', {
+      method: 'POST',
+      body: data
+    });
+  } catch (error) {
+    return {
+      ok: true,
+      demo: true,
+      message:
+        'Reserva registada no modo demonstração. Ligue a base de dados para persistência real.'
+    };
+  }
+}
+
+export async function sendContactMessage(data) {
+  try {
+    return await request('/contacts', {
+      method: 'POST',
+      body: data
+    });
+  } catch (error) {
+    return {
+      ok: true,
+      demo: true,
+      message:
+        'Mensagem recebida no modo demonstração. A API guardará quando o MySQL estiver ativo.'
+    };
+  }
+}
+
+export async function adminLogin(credentials) {
+  return request('/admin/login', {
+    method: 'POST',
+    body: credentials
+  });
+}
+
+export async function getAdminOverview(token) {
+  return request('/admin/overview', { token });
+}
+
+export async function createAdminResource(token, resource, data) {
+  return request(`/admin/content/${resource}`, {
+    method: 'POST',
+    token,
+    body: data
+  });
+}
+
+export async function updateAdminResource(token, resource, id, data) {
+  return request(`/admin/content/${resource}/${id}`, {
+    method: 'PUT',
+    token,
+    body: data
+  });
+}
