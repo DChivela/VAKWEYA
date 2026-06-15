@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS itineraries (
 
 CREATE TABLE IF NOT EXISTS reservations (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NULL,
   service_type ENUM('destino','hotel','restaurante','tour','roteiro') NOT NULL,
   service_id BIGINT UNSIGNED NULL,
   customer_name VARCHAR(180) NOT NULL,
@@ -117,6 +118,7 @@ CREATE TABLE IF NOT EXISTS reservations (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  KEY reservations_user_index (user_id),
   KEY reservations_status_index (status),
   KEY reservations_email_index (customer_email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

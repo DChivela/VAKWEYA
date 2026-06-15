@@ -1,4 +1,7 @@
 import {
+  CalendarDays,
+  CircleDollarSign,
+  Filter,
   Layers3,
   LockKeyhole,
   LogOut,
@@ -7,7 +10,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Trash2,
-  UserCheck,
   Users,
   X
 } from 'lucide-react';
@@ -18,6 +20,7 @@ import {
   deleteAdminResource,
   deleteAdminUser,
   getAdminOverview,
+  getAdminReservations,
   getAdminUsers,
   updateAdminUser,
   updateAdminUserRole,
@@ -31,6 +34,42 @@ const authChangeEvent = 'vakwetu-auth-changed';
 
 function emitAuthChange() {
   window.dispatchEvent(new Event(authChangeEvent));
+}
+
+const serviceLabels = {
+  destino: 'Destino',
+  hotel: 'Hotel',
+  restaurante: 'Restaurante',
+  tour: 'Tour',
+  roteiro: 'Roteiro'
+};
+
+const reservationStatusFilters = [
+  { value: 'all', label: 'Todas' },
+  { value: 'pendente', label: 'Pendentes' },
+  { value: 'confirmada', label: 'Confirmadas' },
+  { value: 'cancelada', label: 'Canceladas' },
+  { value: 'concluida', label: 'Concluídas' }
+];
+
+function formatDate(value) {
+  if (!value) {
+    return 'Data flexível';
+  }
+
+  return new Intl.DateTimeFormat('pt-AO', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(new Date(value));
+}
+
+function formatMoney(value) {
+  if (!value) {
+    return 'A confirmar';
+  }
+
+  return `${Number(value).toLocaleString('pt-AO')} Kz`;
 }
 
 const resourceConfigs = {
@@ -412,6 +451,8 @@ export function AdminPanel({ catalog, onContentChanged }) {
   const [token, setToken] = useState(() => localStorage.getItem(tokenKey));
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
+  const [reservations, setReservations] = useState([]);
+  const [reservationFilter, setReservationFilter] = useState('all');
   const [status, setStatus] = useState({ type: 'idle', message: '' });
   const [activeResource, setActiveResource] = useState('destinations');
   const [selectedItem, setSelectedItem] = useState(null);
@@ -430,6 +471,13 @@ export function AdminPanel({ catalog, onContentChanged }) {
   );
 
   const activeItems = catalog?.[activeResource] || [];
+  const filteredReservations = useMemo(
+    () =>
+      reservationFilter === 'all'
+        ? reservations
+        : reservations.filter((reservation) => reservation.status === reservationFilter),
+    [reservationFilter, reservations]
+  );
 
   const loadOverview = useCallback(async () => {
     if (!token) {
@@ -450,15 +498,25 @@ export function AdminPanel({ catalog, onContentChanged }) {
     setUsers(data.users || []);
   }, [token]);
 
+  const loadReservations = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
+    const data = await getAdminReservations(token);
+    setReservations(data.reservations || []);
+  }, [token]);
+
   useEffect(() => {
     if (!token) {
       setOverview(null);
       setUsers([]);
+      setReservations([]);
       return;
     }
 
     let cancelled = false;
-    Promise.all([loadOverview(), loadUsers()])
+    Promise.all([loadOverview(), loadUsers(), loadReservations()])
       .then(() => {
         if (!cancelled) {
           setStatus((current) => current);
@@ -476,7 +534,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
     return () => {
       cancelled = true;
     };
-  }, [loadOverview, loadUsers, token]);
+  }, [loadOverview, loadReservations, loadUsers, token]);
 
   function updateField(event) {
     const { name, value } = event.target;
@@ -505,6 +563,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
     setToken(null);
     setOverview(null);
     setUsers([]);
+    setReservations([]);
     setSelectedItem(null);
     setEditingUser(null);
     setStatus({ type: 'idle', message: '' });
@@ -601,7 +660,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
               name="username"
               value={credentials.username}
               onChange={updateField}
-              placeholder="dchivela"
+              placeholder="dchivela ou admin@vakwetuweya.ao"
               autoComplete="username"
               required
             />
@@ -659,6 +718,69 @@ export function AdminPanel({ catalog, onContentChanged }) {
               <strong>{Object.values(catalogCounts).reduce((sum, total) => sum + total, 0)}</strong>
             </div>
           </div>
+
+          <section className="admin-reservations-panel">
+            <div className="admin-section-title">
+              <Filter size={18} />
+              <strong>Todas as reservas</strong>
+            </div>
+
+            <div className="reservation-filter-tabs" role="tablist" aria-label="Filtrar reservas">
+              {reservationStatusFilters.map((filter) => {
+                const total =
+                  filter.value === 'all'
+                    ? reservations.length
+                    : reservations.filter((reservation) => reservation.status === filter.value).length;
+
+                return (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    className={reservationFilter === filter.value ? 'is-active' : ''}
+                    onClick={() => setReservationFilter(filter.value)}
+                    role="tab"
+                    aria-selected={reservationFilter === filter.value}
+                  >
+                    {filter.label}
+                    <span>{total}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="reservation-list">
+              {filteredReservations.map((reservation) => (
+                <article className="reservation-card reservation-card--admin" key={reservation.id}>
+                  <div className="reservation-card__top">
+                    <div>
+                      <span>{serviceLabels[reservation.serviceType] || reservation.serviceType}</span>
+                      <strong>{reservation.customerName}</strong>
+                    </div>
+                    <span className={`status-pill status-pill--${reservation.status}`}>
+                      {reservation.status}
+                    </span>
+                  </div>
+                  <div className="reservation-card__meta">
+                    <span>{reservation.customerEmail}</span>
+                    <span>{reservation.customerPhone}</span>
+                    <span>
+                      <CalendarDays size={15} />
+                      {formatDate(reservation.startDate)} - {formatDate(reservation.endDate)}
+                    </span>
+                    <span>
+                      <CircleDollarSign size={15} />
+                      {formatMoney(reservation.budget)}
+                    </span>
+                    <span>{reservation.travelers} pessoa(s)</span>
+                  </div>
+                  {reservation.notes && <p>{reservation.notes}</p>}
+                </article>
+              ))}
+              {filteredReservations.length === 0 && (
+                <p className="empty-state">Nenhuma reserva encontrada neste filtro.</p>
+              )}
+            </div>
+          </section>
 
           <div className="admin-content-layout">
             <div>

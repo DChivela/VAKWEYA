@@ -306,6 +306,7 @@ Permite:
 - Ver orcamento sugerido.
 - Alterar orcamento manualmente.
 - Enviar reserva.
+- Associar automaticamente a reserva ao utilizador logado.
 
 ### 7.1 Calculo Automatico de Orcamento
 
@@ -338,6 +339,20 @@ Roteiro:
 - Nao calcula automaticamente se o orcamento for textual, como `Medio` ou `Flexivel`.
 
 O cliente pode alterar o valor sugerido.
+
+### 7.2 Historico do Cliente
+
+Quando o visitante cria uma reserva com sessao iniciada, o sistema guarda o `user_id` na tabela `reservations`.
+
+Na pagina `/conta`, o utilizador autenticado consegue consultar:
+
+- Reservas criadas pela propria conta.
+- Reservas antigas com o mesmo email do perfil.
+- Estado da reserva.
+- Datas, numero de pessoas e orcamento.
+- Observacoes enviadas no formulario.
+
+Isto permite que o cliente acompanhe o proprio historico sem acesso ao painel administrativo.
 
 ## 8. Mapa Interativo
 
@@ -373,7 +388,30 @@ Mostra:
 - Utilizadores
 - Conteudos
 
-### 9.2 Reservas Recentes
+### 9.2 Consulta de Reservas
+
+O painel administrativo tem uma area separada para consultar todas as reservas.
+
+Permite filtrar por:
+
+- Todas
+- Pendentes
+- Confirmadas
+- Canceladas
+- Concluidas
+
+Cada reserva mostra:
+
+- Nome do cliente
+- Email e telefone
+- Tipo de servico
+- Datas
+- Numero de pessoas
+- Orcamento
+- Estado
+- Observacoes
+
+### 9.3 Reservas Recentes
 
 Mostra pedidos recentes de reserva:
 
@@ -382,7 +420,7 @@ Mostra pedidos recentes de reserva:
 - Numero de pessoas
 - Estado
 
-### 9.3 Contactos Recentes
+### 9.4 Contactos Recentes
 
 Mostra mensagens recebidas:
 
@@ -390,7 +428,7 @@ Mostra mensagens recebidas:
 - Assunto
 - Estado
 
-### 9.4 Gestao de Conteudos
+### 9.5 Gestao de Conteudos
 
 Permite criar, editar e eliminar:
 
@@ -403,7 +441,7 @@ Permite criar, editar e eliminar:
 
 Campos de imagem usam seletor de ficheiro.
 
-### 9.5 Edicao de Conteudos
+### 9.6 Edicao de Conteudos
 
 Ao selecionar `Editar`, o formulario administrativo e preenchido com os dados atuais.
 
@@ -572,6 +610,11 @@ Tokens guardados no navegador:
 
 - `vakwetu_user_token`
 - `vakwetu_admin_token`
+
+O login aceita duas formas de identificacao no mesmo campo:
+
+- Nome de utilizador, por exemplo `dchivela`.
+- Email, por exemplo `admin@vakwetuweya.ao`.
 
 O header observa estes tokens.
 
@@ -756,7 +799,6 @@ Ideias naturais para as proximas fases:
 - Eliminacao de conta pelo proprio utilizador, parecida com Laravel Jetstream.
 - Recuperacao de palavra-passe.
 - Confirmacao de email.
-- Historico de reservas por utilizador.
 - Dashboard do cliente.
 - Estados editaveis para reservas.
 - Upload multiplo de imagens por estabelecimento.
@@ -774,6 +816,8 @@ O projeto ja possui:
 - Catalogo de destinos, hoteis, restaurantes, tours e roteiros.
 - Mapa interativo de Angola.
 - Reservas contextuais.
+- Historico de reservas por cliente.
+- Consulta administrativa de todas as reservas.
 - Orcamento automatico.
 - Conta de utilizador.
 - Foto de perfil.
@@ -784,4 +828,3 @@ O projeto ja possui:
 - Gestao de utilizadores.
 - Modal de edicao de utilizadores.
 - Protecao da conta raiz `dchivela`.
-

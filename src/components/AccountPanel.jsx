@@ -1,6 +1,6 @@
-import { LogIn, LogOut, ShieldCheck, UserPlus } from 'lucide-react';
+import { CalendarDays, CircleDollarSign, History, LogIn, LogOut, ShieldCheck, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { getCurrentUser, loginUser, registerUser } from '../services/api';
+import { getCurrentUser, getMyReservations, loginUser, registerUser } from '../services/api';
 import { FileUploadField } from './FileUploadField';
 import { SectionHeader } from './SectionHeader';
 
@@ -23,6 +23,126 @@ const emptyRegister = {
 
 function emitAuthChange() {
   window.dispatchEvent(new Event(authChangeEvent));
+}
+
+const serviceLabels = {
+  destino: 'Destino',
+  hotel: 'Hotel',
+  restaurante: 'Restaurante',
+  tour: 'Tour',
+  roteiro: 'Roteiro'
+};
+
+function formatDate(value) {
+  if (!value) {
+    return 'Data flexível';
+  }
+
+  return new Intl.DateTimeFormat('pt-AO', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(new Date(value));
+}
+
+function formatMoney(value) {
+  if (!value) {
+    return 'A confirmar';
+  }
+
+  return `${Number(value).toLocaleString('pt-AO')} Kz`;
+}
+
+function ReservationHistory({ token }) {
+  const [reservations, setReservations] = useState([]);
+  const [status, setStatus] = useState({ type: 'loading', message: 'A carregar reservas...' });
+
+  useEffect(() => {
+    if (!token) {
+      setReservations([]);
+      setStatus({ type: 'idle', message: '' });
+      return;
+    }
+
+    let cancelled = false;
+    setStatus({ type: 'loading', message: 'A carregar reservas...' });
+
+    getMyReservations(token)
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+
+        setReservations(payload.reservations || []);
+        setStatus({ type: 'success', message: '' });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus({ type: 'error', message: error.message });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  return (
+    <div className="reservation-history">
+      <div className="reservation-history__header">
+        <div>
+          <span>
+            <History size={16} />
+            Histórico
+          </span>
+          <strong>Minhas reservas</strong>
+        </div>
+        <a className="button button--soft" href="/reservas">
+          Nova reserva
+        </a>
+      </div>
+
+      {status.type === 'loading' && <p className="empty-state">{status.message}</p>}
+      {status.type === 'error' && <p className="form-status form-status--error">{status.message}</p>}
+
+      {status.type !== 'loading' && status.type !== 'error' && reservations.length === 0 && (
+        <p className="empty-state">
+          Ainda não há reservas ligadas à tua conta. Quando criares uma reserva com sessão iniciada,
+          ela aparece aqui.
+        </p>
+      )}
+
+      {reservations.length > 0 && (
+        <div className="reservation-list reservation-list--compact">
+          {reservations.map((reservation) => (
+            <article className="reservation-card" key={reservation.id}>
+              <div className="reservation-card__top">
+                <div>
+                  <span>{serviceLabels[reservation.serviceType] || reservation.serviceType}</span>
+                  <strong>Pedido #{reservation.id}</strong>
+                </div>
+                <span className={`status-pill status-pill--${reservation.status}`}>
+                  {reservation.status}
+                </span>
+              </div>
+              <div className="reservation-card__meta">
+                <span>
+                  <CalendarDays size={15} />
+                  {formatDate(reservation.startDate)} - {formatDate(reservation.endDate)}
+                </span>
+                <span>
+                  <CircleDollarSign size={15} />
+                  {formatMoney(reservation.budget)}
+                </span>
+                <span>{reservation.travelers} pessoa(s)</span>
+              </div>
+              {reservation.notes && <p>{reservation.notes}</p>}
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function AccountPanel() {
@@ -146,6 +266,7 @@ export function AccountPanel() {
               Sair
             </button>
           </div>
+          <ReservationHistory token={token} />
         </div>
       ) : (
         <div className="account-auth">
@@ -173,11 +294,12 @@ export function AccountPanel() {
           {mode === 'login' ? (
             <form className="account-form" onSubmit={handleLogin}>
               <label>
-                Usuário (nome de utilizador)
+                Usuário
                 <input
                   name="username"
                   value={loginForm.username}
                   onChange={updateLoginField}
+                  placeholder="Usuario ou email"
                   autoComplete="username"
                   required
                 />
@@ -212,7 +334,7 @@ export function AccountPanel() {
                   <input name="name" value={registerForm.name} onChange={updateRegisterField} required />
                 </label>
                 <label>
-                  Usuário (nome de utilizador)
+                  Usuário
                   <input
                     name="username"
                     value={registerForm.username}

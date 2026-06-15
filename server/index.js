@@ -105,6 +105,17 @@ function requireAuth(request, response, next) {
   return next();
 }
 
+function readOptionalSession(request) {
+  const token = request.headers.authorization?.replace('Bearer ', '');
+  const session = token ? sessions.get(token) : null;
+
+  if (!session || session.expiresAt < Date.now()) {
+    return null;
+  }
+
+  return session;
+}
+
 function toPublicUser(row) {
   return sanitizeUser({
     id: row.id,
@@ -282,6 +293,26 @@ function normalizeResourcePayload(resource, payload) {
     default:
       throw new Error('Tipo de conteúdo inválido.');
   }
+}
+
+function toPublicReservation(row) {
+  return {
+    id: row.id,
+    userId: row.user_id ?? row.userId ?? null,
+    serviceType: row.service_type ?? row.serviceType,
+    serviceId: row.service_id ?? row.serviceId ?? null,
+    customerName: row.customer_name ?? row.customerName,
+    customerEmail: row.customer_email ?? row.customerEmail,
+    customerPhone: row.customer_phone ?? row.customerPhone,
+    travelers: Number(row.travelers || 1),
+    startDate: row.start_date ?? row.startDate ?? null,
+    endDate: row.end_date ?? row.endDate ?? null,
+    budget: row.budget === null || row.budget === undefined ? null : Number(row.budget),
+    notes: row.notes || null,
+    status: row.status || 'pendente',
+    createdAt: row.created_at ?? row.createdAt ?? null,
+    updatedAt: row.updated_at ?? row.updatedAt ?? null
+  };
 }
 
 async function insertResource(resource, item) {
@@ -599,6 +630,7 @@ async function initializeSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS reservations (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id BIGINT UNSIGNED NULL,
       service_type ENUM('destino','hotel','restaurante','tour','roteiro') NOT NULL,
       service_id BIGINT UNSIGNED NULL,
       customer_name VARCHAR(180) NOT NULL,
@@ -613,6 +645,7 @@ async function initializeSchema() {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
+      KEY reservations_user_index (user_id),
       KEY reservations_status_index (status),
       KEY reservations_email_index (customer_email)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
@@ -646,6 +679,22 @@ async function initializeSchema() {
     await pool.query('ALTER TABLE users ADD COLUMN avatar VARCHAR(255) NULL AFTER phone');
   } catch (error) {
     if (error.code !== 'ER_DUP_FIELDNAME') {
+      throw error;
+    }
+  }
+
+  try {
+    await pool.query('ALTER TABLE reservations ADD COLUMN user_id BIGINT UNSIGNED NULL AFTER id');
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') {
+      throw error;
+    }
+  }
+
+  try {
+    await pool.query('ALTER TABLE reservations ADD KEY reservations_user_index (user_id)');
+  } catch (error) {
+    if (error.code !== 'ER_DUP_KEYNAME') {
       throw error;
     }
   }
@@ -852,24 +901,31 @@ function ensureDemoAdmin() {
   });
 }
 
-async function findUserByUsername(username) {
-  const normalizedUsername = String(username || '').trim().toLowerCase();
+async function findUserByIdentifier(identifier) {
+  const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
 
   if (!pool) {
     ensureDemoAdmin();
-    return demoUsers.find((user) => user.username === normalizedUsername);
+    return demoUsers.find(
+      (user) =>
+        user.username === normalizedIdentifier ||
+        String(user.email || '').toLowerCase() === normalizedIdentifier
+    );
   }
 
   const [rows] = await pool.query(
-    'SELECT id, username, name, email, phone, avatar, password_hash, role FROM users WHERE username = :username LIMIT 1',
-    { username: normalizedUsername }
+    `SELECT id, username, name, email, phone, avatar, password_hash, role
+     FROM users
+     WHERE username = :identifier OR email = :identifier
+     LIMIT 1`,
+    { identifier: normalizedIdentifier }
   );
 
   return rows[0];
 }
 
 async function authenticateUser(username, password) {
-  const user = await findUserByUsername(username);
+  const user = await findUserByIdentifier(username);
 
   if (!user || !verifyPassword(password, user.password_hash)) {
     return null;
@@ -969,13 +1025,21 @@ app.get('/api/auth/me', requireAuth, (request, response) => {
 
 app.post('/api/reservations', async (request, response) => {
   const payload = request.body;
+  const token = request.headers.authorization?.replace('Bearer ', '');
+  const session = readOptionalSession(request);
+
+  if (token && !session) {
+    return response.status(401).json({ message: 'SessÃ£o expirada. FaÃ§a login novamente.' });
+  }
 
   if (!payload.name || !payload.email || !payload.phone) {
     return response.status(422).json({ message: 'Nome, email e telefone são obrigatórios.' });
   }
 
+  const now = new Date().toISOString();
   const reservation = {
     id: Date.now(),
+    user_id: session?.id || null,
     service_type: payload.serviceType,
     service_id: payload.serviceId || null,
     customer_name: payload.name,
@@ -986,7 +1050,9 @@ app.post('/api/reservations', async (request, response) => {
     end_date: payload.endDate || null,
     budget: payload.budget || null,
     notes: payload.notes || null,
-    status: 'pendente'
+    status: 'pendente',
+    created_at: now,
+    updated_at: now
   };
 
   if (!pool) {
@@ -1000,8 +1066,8 @@ app.post('/api/reservations', async (request, response) => {
 
   await pool.query(
     `INSERT INTO reservations
-     (service_type, service_id, customer_name, customer_email, customer_phone, travelers, start_date, end_date, budget, notes)
-     VALUES (:service_type, :service_id, :customer_name, :customer_email, :customer_phone, :travelers, :start_date, :end_date, :budget, :notes)`,
+     (user_id, service_type, service_id, customer_name, customer_email, customer_phone, travelers, start_date, end_date, budget, notes)
+     VALUES (:user_id, :service_type, :service_id, :customer_name, :customer_email, :customer_phone, :travelers, :start_date, :end_date, :budget, :notes)`,
     reservation
   );
 
@@ -1009,6 +1075,37 @@ app.post('/api/reservations', async (request, response) => {
     ok: true,
     message: 'Reserva enviada com sucesso. A equipa vai confirmar os detalhes contigo.'
   });
+});
+
+app.get('/api/reservations/me', requireAuth, async (request, response) => {
+  const userEmail = request.user.email ? String(request.user.email).toLowerCase() : null;
+
+  if (!pool) {
+    const reservations = demoReservations
+      .filter(
+        (item) =>
+          Number(item.user_id) === Number(request.user.id) ||
+          (userEmail && String(item.customer_email || '').toLowerCase() === userEmail)
+      )
+      .map(toPublicReservation);
+
+    return response.json({ reservations, source: 'demo' });
+  }
+
+  const whereClause = userEmail
+    ? 'WHERE user_id = :userId OR LOWER(customer_email) = :email'
+    : 'WHERE user_id = :userId';
+  const [rows] = await pool.query(
+    `SELECT id, user_id, service_type, service_id, customer_name, customer_email, customer_phone,
+            travelers, start_date, end_date, budget, notes, status, created_at, updated_at
+     FROM reservations
+     ${whereClause}
+     ORDER BY created_at DESC
+     LIMIT 80`,
+    { userId: request.user.id, email: userEmail }
+  );
+
+  return response.json({ reservations: rows.map(toPublicReservation), source: 'mysql' });
 });
 
 app.post('/api/contacts', async (request, response) => {
@@ -1358,6 +1455,25 @@ app.delete('/api/admin/users/:id', requireAdmin, async (request, response) => {
 
   await pool.query('DELETE FROM users WHERE id = :id', { id });
   return response.json({ ok: true, message: 'Utilizador eliminado.' });
+});
+
+app.get('/api/admin/reservations', requireAdmin, async (request, response) => {
+  if (!pool) {
+    return response.json({
+      reservations: demoReservations.map(toPublicReservation),
+      source: 'demo'
+    });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, user_id, service_type, service_id, customer_name, customer_email, customer_phone,
+            travelers, start_date, end_date, budget, notes, status, created_at, updated_at
+     FROM reservations
+     ORDER BY created_at DESC
+     LIMIT 200`
+  );
+
+  return response.json({ reservations: rows.map(toPublicReservation), source: 'mysql' });
 });
 
 app.get('/api/admin/overview', requireAdmin, async (request, response) => {

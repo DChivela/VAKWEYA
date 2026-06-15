@@ -15,7 +15,9 @@ async function request(path, options = {}) {
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(payload.message || 'Não foi possível concluir a ação.');
+    const error = new Error(payload.message || 'Não foi possível concluir a ação.');
+    error.status = response.status;
+    throw error;
   }
 
   return payload;
@@ -29,13 +31,18 @@ export async function getCatalog() {
   }
 }
 
-export async function createReservation(data) {
+export async function createReservation(data, token) {
   try {
     return await request('/reservations', {
       method: 'POST',
+      token,
       body: data
     });
   } catch (error) {
+    if (error.status) {
+      throw error;
+    }
+
     return {
       ok: true,
       demo: true,
@@ -43,6 +50,10 @@ export async function createReservation(data) {
         'Reserva registada no modo demonstração. Ligue a base de dados para persistência real.'
     };
   }
+}
+
+export async function getMyReservations(token) {
+  return request('/reservations/me', { token });
 }
 
 export async function uploadImage(data, token) {
@@ -78,6 +89,10 @@ export async function sendContactMessage(data) {
       body: data
     });
   } catch (error) {
+    if (error.status) {
+      throw error;
+    }
+
     return {
       ok: true,
       demo: true,
@@ -96,6 +111,10 @@ export async function adminLogin(credentials) {
 
 export async function getAdminOverview(token) {
   return request('/admin/overview', { token });
+}
+
+export async function getAdminReservations(token) {
+  return request('/admin/reservations', { token });
 }
 
 export async function createAdminResource(token, resource, data) {

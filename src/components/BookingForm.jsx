@@ -1,8 +1,11 @@
 import { Calculator, CalendarCheck, CheckCircle2, RotateCcw, Send, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { createReservation } from '../services/api';
+import { createReservation, getCurrentUser } from '../services/api';
 import { parseReservationSearch } from '../services/reservationLinks';
 import { SectionHeader } from './SectionHeader';
+
+const authTokenKey = 'vakwetu_user_token';
+const authChangeEvent = 'vakwetu-auth-changed';
 
 const initialForm = {
   serviceType: 'tour',
@@ -103,6 +106,7 @@ function getSuggestedBudget(serviceType, selectedService, form) {
 
 export function BookingForm({ destinations, hotels, restaurants, tours, itineraries, currentSearch = '' }) {
   const [form, setForm] = useState(initialForm);
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem(authTokenKey));
   const [budgetEdited, setBudgetEdited] = useState(false);
   const [status, setStatus] = useState({ type: 'idle', message: '' });
 
@@ -127,6 +131,49 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
     () => getSuggestedBudget(form.serviceType, selectedService, form),
     [form, selectedService]
   );
+
+  useEffect(() => {
+    function syncToken() {
+      setAuthToken(localStorage.getItem(authTokenKey));
+    }
+
+    window.addEventListener('storage', syncToken);
+    window.addEventListener(authChangeEvent, syncToken);
+
+    return () => {
+      window.removeEventListener('storage', syncToken);
+      window.removeEventListener(authChangeEvent, syncToken);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authToken) {
+      return;
+    }
+
+    let cancelled = false;
+    getCurrentUser(authToken)
+      .then((payload) => {
+        if (cancelled || !payload.user) {
+          return;
+        }
+
+        setForm((current) => ({
+          ...current,
+          name: current.name || payload.user.name || '',
+          email: current.email || payload.user.email || '',
+          phone: current.phone || payload.user.phone || ''
+        }));
+      })
+      .catch(() => {
+        localStorage.removeItem(authTokenKey);
+        setAuthToken(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
 
   useEffect(() => {
     const { serviceType, serviceId } = parseReservationSearch(currentSearch || window.location.search);
@@ -195,7 +242,7 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
         ...form,
         travelers: Number(form.travelers),
         budget: form.budget ? Number(form.budget) : null
-      });
+      }, authToken);
 
       setForm((current) => ({
         ...initialForm,

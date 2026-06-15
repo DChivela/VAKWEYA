@@ -1,6 +1,35 @@
 import { LogIn, Sparkles, UserPlus } from 'lucide-react';
+import { useEffect, useState } from 'react';
+
+const userTokenKey = 'vakwetu_user_token';
+const adminTokenKey = 'vakwetu_admin_token';
+const authChangeEvent = 'vakwetu-auth-changed';
+
+function hasActiveSession() {
+  return Boolean(localStorage.getItem(userTokenKey) || localStorage.getItem(adminTokenKey));
+}
 
 export function AccountTeaser() {
+  const [isAuthenticated, setIsAuthenticated] = useState(hasActiveSession);
+
+  useEffect(() => {
+    function syncSession() {
+      setIsAuthenticated(hasActiveSession());
+    }
+
+    window.addEventListener('storage', syncSession);
+    window.addEventListener(authChangeEvent, syncSession);
+
+    return () => {
+      window.removeEventListener('storage', syncSession);
+      window.removeEventListener(authChangeEvent, syncSession);
+    };
+  }, []);
+
+  if (isAuthenticated) {
+    return null;
+  }
+
   return (
     <section className="account-teaser shell" aria-label="Acesso rápido à conta">
       <div>

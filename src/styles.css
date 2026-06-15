@@ -1413,6 +1413,7 @@ textarea:focus {
 .admin-dashboard > .admin-toolbar,
 .admin-dashboard > .admin-metrics,
 .admin-content-layout,
+.admin-reservations-panel,
 .admin-users-panel {
   padding: 18px;
   border: 1px solid var(--line);
@@ -1642,16 +1643,193 @@ textarea:focus {
   color: var(--muted);
 }
 
+.reservation-history {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.reservation-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reservation-history__header div {
+  display: grid;
+  gap: 4px;
+}
+
+.reservation-history__header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ocean);
+  font-size: 0.78rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.reservation-history__header strong {
+  font-size: 1.25rem;
+}
+
+.reservation-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.reservation-filter-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f8fafc;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.reservation-filter-tabs button.is-active {
+  color: var(--white);
+  background: var(--ocean);
+}
+
+.reservation-filter-tabs span {
+  display: grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: var(--radius);
+  background: rgba(15, 23, 42, 0.08);
+  font-size: 0.78rem;
+}
+
+.reservation-filter-tabs button.is-active span {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.reservation-list {
+  display: grid;
+  gap: 10px;
+}
+
+.reservation-list--compact {
+  max-height: 430px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.reservation-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f8fafc;
+}
+
+.reservation-card--admin {
+  background: var(--white);
+}
+
+.reservation-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.reservation-card__top div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.reservation-card__top div span {
+  color: var(--ocean);
+  font-size: 0.76rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.reservation-card__top strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.05rem;
+}
+
+.reservation-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reservation-card__meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.reservation-card--admin .reservation-card__meta span {
+  background: #f8fafc;
+}
+
+.reservation-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .status-pill {
   padding: 7px 9px;
   color: #0f172a;
   background: var(--sun);
   font-size: 0.78rem;
+  border-radius: var(--radius);
+  font-weight: 950;
+  text-transform: capitalize;
 }
 
 .status-pill--admin {
   color: var(--white);
   background: var(--forest);
+}
+
+.status-pill--pendente {
+  color: #7c2d12;
+  background: #fed7aa;
+}
+
+.status-pill--confirmada {
+  color: #0f5132;
+  background: #bbf7d0;
+}
+
+.status-pill--cancelada {
+  color: #991b1b;
+  background: #fecaca;
+}
+
+.status-pill--concluida {
+  color: #1e3a8a;
+  background: #bfdbfe;
 }
 
 .button--danger {
@@ -2106,6 +2284,8 @@ textarea:focus {
   }
 
   .admin-toolbar,
+  .reservation-history__header,
+  .reservation-card__top,
   .admin-list article,
   .admin-edit-items article,
   .admin-user-list article,
@@ -2127,6 +2307,16 @@ textarea:focus {
 
   .admin-item-actions .button {
     justify-content: center;
+  }
+
+  .reservation-filter-tabs button,
+  .reservation-history__header .button {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .reservation-card__meta {
+    display: grid;
   }
 
   .footer-links {
