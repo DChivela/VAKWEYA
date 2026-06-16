@@ -1414,6 +1414,7 @@ textarea:focus {
 .admin-dashboard > .admin-metrics,
 .admin-content-layout,
 .admin-reservations-panel,
+.admin-assistant-panel,
 .admin-users-panel {
   padding: 18px;
   border: 1px solid var(--line);
@@ -1797,6 +1798,74 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.assistant-admin-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.86fr) minmax(420px, 1.14fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.assistant-admin-side {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.assistant-faq-list,
+.assistant-log-list {
+  display: grid;
+  gap: 10px;
+  max-height: 430px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.assistant-faq-list article,
+.assistant-log-list article {
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #f8fafc;
+}
+
+.assistant-faq-list article {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.assistant-faq-list article div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.assistant-faq-list article span {
+  color: var(--ocean);
+  font-size: 0.76rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.assistant-faq-list article strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-faq-list article p,
+.assistant-log-list article p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.assistant-log-list article {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .status-pill {
   padding: 7px 9px;
   color: #0f172a;
@@ -2065,6 +2134,197 @@ textarea:focus {
   color: var(--muted);
 }
 
+.assistant {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 35;
+  display: grid;
+  justify-items: end;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.assistant-panel,
+.assistant-toggle {
+  pointer-events: auto;
+}
+
+.assistant-toggle {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--ocean), var(--forest));
+  color: var(--white);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.24);
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.assistant-toggle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.3);
+}
+
+.assistant-panel {
+  display: grid;
+  width: min(390px, calc(100vw - 28px));
+  max-height: min(680px, calc(100vh - 112px));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(238, 246, 255, 0.96)),
+    var(--white);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.3);
+}
+
+.assistant-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  color: var(--white);
+  background: linear-gradient(135deg, #0f172a, var(--ocean));
+}
+
+.assistant-panel__header div {
+  display: grid;
+  gap: 4px;
+}
+
+.assistant-panel__header span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.76rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.assistant-panel__header strong {
+  font-size: 1.22rem;
+}
+
+.assistant-panel__header button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--white);
+  cursor: pointer;
+}
+
+.assistant-messages {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 220px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 14px;
+}
+
+.assistant-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 92%;
+}
+
+.assistant-message svg {
+  flex: 0 0 auto;
+  margin-top: 10px;
+  color: var(--ocean);
+}
+
+.assistant-message p {
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ink);
+  line-height: 1.5;
+  font-size: 0.92rem;
+}
+
+.assistant-message--user {
+  justify-self: end;
+  justify-content: flex-end;
+}
+
+.assistant-message--user p {
+  border-color: rgba(37, 99, 235, 0.2);
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.assistant-suggestions {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 14px 12px;
+}
+
+.assistant-suggestions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  max-width: 260px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ocean);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 46px;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.assistant-form input {
+  min-height: 44px;
+}
+
+.assistant-form button {
+  display: grid;
+  min-height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--ocean);
+  color: var(--white);
+  cursor: pointer;
+}
+
+.assistant-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .footer {
   padding: 30px 0;
   border-top: 1px solid var(--line);
@@ -2139,6 +2399,7 @@ textarea:focus {
   .booking-layout,
   .contact-layout,
   .about-section,
+  .assistant-admin-layout,
   .admin-content-layout {
     grid-template-columns: 1fr;
   }
@@ -2288,6 +2549,8 @@ textarea:focus {
   .reservation-card__top,
   .admin-list article,
   .admin-edit-items article,
+  .assistant-faq-list article,
+  .assistant-log-list article,
   .admin-user-list article,
   .footer-layout {
     align-items: stretch;
@@ -2295,6 +2558,8 @@ textarea:focus {
   }
 
   .admin-edit-items article,
+  .assistant-faq-list article,
+  .assistant-log-list article,
   .admin-user-list article {
     display: flex;
   }
@@ -2317,6 +2582,20 @@ textarea:focus {
 
   .reservation-card__meta {
     display: grid;
+  }
+
+  .assistant {
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .assistant-panel {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 92px);
+  }
+
+  .assistant-messages {
+    max-height: 300px;
   }
 
   .footer-links {

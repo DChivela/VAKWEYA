@@ -31,6 +31,21 @@ export async function getCatalog() {
   }
 }
 
+export async function getAssistantSuggestions() {
+  try {
+    return await request('/assistant/suggestions');
+  } catch (error) {
+    return { suggestions: [], source: 'local' };
+  }
+}
+
+export async function askAssistant(message) {
+  return request('/assistant/chat', {
+    method: 'POST',
+    body: { message }
+  });
+}
+
 export async function createReservation(data, token) {
   try {
     return await request('/reservations', {
@@ -115,6 +130,37 @@ export async function getAdminOverview(token) {
 
 export async function getAdminReservations(token) {
   return request('/admin/reservations', { token });
+}
+
+export async function getAdminAssistantFaqs(token) {
+  return request('/admin/assistant/faqs', { token });
+}
+
+export async function createAdminAssistantFaq(token, data) {
+  return request('/admin/assistant/faqs', {
+    method: 'POST',
+    token,
+    body: data
+  });
+}
+
+export async function updateAdminAssistantFaq(token, id, data) {
+  return request(`/admin/assistant/faqs/${id}`, {
+    method: 'PUT',
+    token,
+    body: data
+  });
+}
+
+export async function deleteAdminAssistantFaq(token, id) {
+  return request(`/admin/assistant/faqs/${id}`, {
+    method: 'DELETE',
+    token
+  });
+}
+
+export async function getAdminAssistantLogs(token) {
+  return request('/admin/assistant/logs', { token });
 }
 
 export async function createAdminResource(token, resource, data) {

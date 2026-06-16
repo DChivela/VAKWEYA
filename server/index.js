@@ -22,6 +22,65 @@ const demoUsers = [];
 const demoReservations = [];
 const demoContacts = [];
 const demoCatalog = structuredClone(catalog);
+const defaultAssistantFaqs = [
+  {
+    category: 'Reservas',
+    question: 'Como faço uma reserva?',
+    answer:
+      'Escolhe um hotel, restaurante, tour, destino ou roteiro e clica no botão de reserva. A página de reservas abre com a seleção preparada; depois só precisas confirmar os teus dados, datas, número de pessoas e enviar o pedido.',
+    keywords: ['reserva', 'reservar', 'pedido', 'hotel', 'restaurante', 'tour', 'roteiro']
+  },
+  {
+    category: 'Conta',
+    question: 'Preciso criar conta para reservar?',
+    answer:
+      'Podes enviar uma reserva como visitante, mas criar conta deixa tudo mais prático: os teus dados são preenchidos automaticamente e consegues consultar o histórico em Perfil.',
+    keywords: ['conta', 'login', 'perfil', 'criar conta', 'visitante']
+  },
+  {
+    category: 'Histórico',
+    question: 'Onde vejo as minhas reservas?',
+    answer:
+      'Depois de iniciar sessão, entra em Perfil. A área Minhas reservas mostra os pedidos ligados à tua conta e também reservas antigas feitas com o mesmo email do perfil.',
+    keywords: ['minhas reservas', 'histórico', 'historico', 'perfil', 'consultar reserva']
+  },
+  {
+    category: 'Orçamento',
+    question: 'O orçamento é calculado automaticamente?',
+    answer:
+      'Sim. Quando escolhes um serviço com preço definido, o sistema sugere um valor com base no tipo de reserva, datas e número de pessoas. Ainda assim, podes alterar o orçamento antes de enviar.',
+    keywords: ['orçamento', 'orcamento', 'preço', 'preco', 'valor', 'calcular']
+  },
+  {
+    category: 'Mapa',
+    question: 'Como funciona o mapa interativo?',
+    answer:
+      'O mapa mostra Angola com pontos clicáveis para os destinos cadastrados. Quando o admin adiciona um destino com província e coordenadas, ele passa a aparecer no mapa.',
+    keywords: ['mapa', 'Angola', 'destinos', 'província', 'provincia', 'coordenadas']
+  },
+  {
+    category: 'Administração',
+    question: 'Quem pode alterar hotéis, restaurantes e tours?',
+    answer:
+      'Apenas utilizadores com privilégio de administrador conseguem criar, editar ou eliminar conteúdos no painel administrativo. A conta raiz dchivela permanece protegida.',
+    keywords: ['admin', 'administrador', 'editar', 'eliminar', 'conteúdo', 'conteudo', 'dchivela']
+  },
+  {
+    category: 'Contacto',
+    question: 'Como falo com a equipa Vakwetu Weya?',
+    answer:
+      'Podes usar a página Contacto ou enviar email para reservas@vakwetuweya.ao. Para reservas enviadas pelo site, a equipa confirma os detalhes contigo antes do fecho.',
+    keywords: ['contacto', 'contato', 'email', 'equipa', 'suporte', 'ajuda']
+  }
+];
+const demoAssistantFaqs = defaultAssistantFaqs.map((faq, index) => ({
+  id: index + 1,
+  ...faq,
+  active: 1,
+  created_at: null,
+  updated_at: null
+}));
+const demoAssistantLogs = [];
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(serverDir, '..');
 const uploadRoot = path.resolve(process.env.UPLOAD_DIR || path.join(projectRoot, 'public', 'uploads'));
@@ -203,6 +262,123 @@ function splitList(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function normalizeAssistantText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenizeAssistantText(value) {
+  return normalizeAssistantText(value)
+    .split(' ')
+    .filter((token) => token.length > 2);
+}
+
+function toPublicAssistantFaq(row) {
+  return {
+    id: row.id,
+    category: row.category || 'Geral',
+    question: row.question,
+    answer: row.answer,
+    keywords: parseJson(row.keywords_json ?? row.keywords, []),
+    active: Boolean(row.active ?? true),
+    createdAt: row.created_at ?? row.createdAt ?? null,
+    updatedAt: row.updated_at ?? row.updatedAt ?? null
+  };
+}
+
+function toPublicAssistantLog(row) {
+  return {
+    id: row.id,
+    question: row.user_question ?? row.question,
+    answer: row.assistant_answer ?? row.answer ?? null,
+    matchedFaqId: row.matched_faq_id ?? row.matchedFaqId ?? null,
+    confidence: Number(row.confidence || 0),
+    answered: Boolean(row.answered),
+    createdAt: row.created_at ?? row.createdAt ?? null
+  };
+}
+
+function normalizeAssistantFaqPayload(payload) {
+  ensureRequired(payload, ['question', 'answer']);
+
+  return {
+    category: String(payload.category || 'Geral').trim(),
+    question: String(payload.question).trim(),
+    answer: String(payload.answer).trim(),
+    keywords: splitList(payload.keywords),
+    active: payload.active === false || payload.active === 0 ? 0 : 1
+  };
+}
+
+function scoreAssistantFaq(message, faq) {
+  const normalizedQuestion = normalizeAssistantText(message);
+  const tokens = tokenizeAssistantText(message);
+  const keywords = Array.isArray(faq.keywords) ? faq.keywords : parseJson(faq.keywords_json, []);
+  const searchable = normalizeAssistantText([
+    faq.category,
+    faq.question,
+    faq.answer,
+    keywords.join(' ')
+  ].join(' '));
+  let score = 0;
+
+  if (!normalizedQuestion) {
+    return { score: 0, confidence: 0 };
+  }
+
+  if (searchable.includes(normalizedQuestion)) {
+    score += 4;
+  }
+
+  for (const keyword of keywords) {
+    const normalizedKeyword = normalizeAssistantText(keyword);
+
+    if (normalizedKeyword && normalizedQuestion.includes(normalizedKeyword)) {
+      score += 3;
+    }
+  }
+
+  for (const token of tokens) {
+    if (searchable.includes(token)) {
+      score += 1;
+    }
+  }
+
+  const confidence = Math.min(1, score / Math.max(5, tokens.length + 4));
+  return { score, confidence };
+}
+
+function findAssistantAnswer(message, faqs) {
+  const activeFaqs = faqs.filter((faq) => faq.active !== false && faq.active !== 0);
+  const rankedFaqs = activeFaqs
+    .map((faq) => ({ faq, ...scoreAssistantFaq(message, faq) }))
+    .sort((a, b) => b.score - a.score);
+  const best = rankedFaqs[0];
+  const minimumScore = Math.max(3, Math.ceil(tokenizeAssistantText(message).length * 0.45));
+
+  if (!best || best.score < minimumScore) {
+    return {
+      matched: false,
+      confidence: 0,
+      faq: null,
+      answer:
+        'Ainda não tenho uma resposta segura para isso. Podes reformular a pergunta ou falar com a equipa pela página de contacto. Vou guardar esta dúvida para a equipa melhorar o assistente.'
+    };
+  }
+
+  return {
+    matched: true,
+    confidence: Number(best.confidence.toFixed(2)),
+    faq: best.faq,
+    answer: best.faq.answer
+  };
 }
 
 function ensureRequired(payload, fields) {
@@ -528,6 +704,7 @@ async function connectDatabase() {
 
     await initializeSchema();
     await seedBaseContent();
+    await seedAssistantFaqs();
     console.log(`MySQL ligado em ${dbName}.`);
   } catch (error) {
     pool = null;
@@ -659,6 +836,31 @@ async function initializeSchema() {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS assistant_faqs (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      category VARCHAR(120) NOT NULL DEFAULT 'Geral',
+      question VARCHAR(260) NOT NULL,
+      answer TEXT NOT NULL,
+      keywords_json JSON NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY assistant_faqs_active_index (active),
+      KEY assistant_faqs_category_index (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS assistant_logs (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_question TEXT NOT NULL,
+      assistant_answer TEXT NULL,
+      matched_faq_id BIGINT UNSIGNED NULL,
+      confidence DECIMAL(5,2) NOT NULL DEFAULT 0,
+      answered TINYINT(1) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY assistant_logs_answered_index (answered),
+      KEY assistant_logs_created_index (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS testimonials (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(140) NOT NULL,
@@ -773,6 +975,25 @@ async function seedBaseContent() {
       `INSERT INTO testimonials (name, location, quote, score)
        VALUES (:name, :location, :quote, :score)`,
       item
+    );
+  }
+}
+
+async function seedAssistantFaqs() {
+  const [[faqCount]] = await pool.query('SELECT COUNT(*) AS total FROM assistant_faqs');
+
+  if (faqCount.total > 0) {
+    return;
+  }
+
+  for (const faq of defaultAssistantFaqs) {
+    await pool.query(
+      `INSERT INTO assistant_faqs (category, question, answer, keywords_json, active)
+       VALUES (:category, :question, :answer, :keywords, 1)`,
+      {
+        ...faq,
+        keywords: JSON.stringify(faq.keywords)
+      }
     );
   }
 }
@@ -948,6 +1169,88 @@ app.get('/api/catalog', async (request, response) => {
   } catch (error) {
     return response.json({ ...demoCatalog, source: 'local', warning: error.message });
   }
+});
+
+app.get('/api/assistant/suggestions', async (request, response) => {
+  if (!pool) {
+    return response.json({
+      suggestions: demoAssistantFaqs.filter((faq) => faq.active).slice(0, 6).map(toPublicAssistantFaq),
+      source: 'demo'
+    });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, category, question, answer, keywords_json, active, created_at, updated_at
+     FROM assistant_faqs
+     WHERE active = 1
+     ORDER BY category ASC, id ASC
+     LIMIT 8`
+  );
+
+  return response.json({ suggestions: rows.map(toPublicAssistantFaq), source: 'mysql' });
+});
+
+app.post('/api/assistant/chat', async (request, response) => {
+  const message = String(request.body.message || '').trim();
+
+  if (!message) {
+    return response.status(422).json({ message: 'Escreva uma pergunta para o assistente.' });
+  }
+
+  if (message.length > 700) {
+    return response.status(422).json({ message: 'A pergunta deve ter no máximo 700 caracteres.' });
+  }
+
+  let faqs = demoAssistantFaqs.map(toPublicAssistantFaq);
+
+  if (pool) {
+    const [rows] = await pool.query(
+      `SELECT id, category, question, answer, keywords_json, active, created_at, updated_at
+       FROM assistant_faqs
+       WHERE active = 1
+       ORDER BY id ASC`
+    );
+    faqs = rows.map(toPublicAssistantFaq);
+  }
+
+  const result = findAssistantAnswer(message, faqs);
+  const suggestions = faqs
+    .filter((faq) => !result.faq || Number(faq.id) !== Number(result.faq.id))
+    .slice(0, 4)
+    .map(({ id, category, question }) => ({ id, category, question }));
+
+  if (!pool) {
+    demoAssistantLogs.unshift({
+      id: Date.now(),
+      user_question: message,
+      assistant_answer: result.answer,
+      matched_faq_id: result.faq?.id || null,
+      confidence: result.confidence,
+      answered: result.matched ? 1 : 0,
+      created_at: new Date().toISOString()
+    });
+  } else {
+    await pool.query(
+      `INSERT INTO assistant_logs
+       (user_question, assistant_answer, matched_faq_id, confidence, answered)
+       VALUES (:question, :answer, :matchedFaqId, :confidence, :answered)`,
+      {
+        question: message,
+        answer: result.answer,
+        matchedFaqId: result.faq?.id || null,
+        confidence: result.confidence,
+        answered: result.matched ? 1 : 0
+      }
+    );
+  }
+
+  return response.json({
+    answer: result.answer,
+    matched: result.matched,
+    confidence: result.confidence,
+    faq: result.faq ? { id: result.faq.id, category: result.faq.category, question: result.faq.question } : null,
+    suggestions
+  });
 });
 
 app.post('/api/uploads', async (request, response) => {
@@ -1476,6 +1779,151 @@ app.get('/api/admin/reservations', requireAdmin, async (request, response) => {
   return response.json({ reservations: rows.map(toPublicReservation), source: 'mysql' });
 });
 
+app.get('/api/admin/assistant/faqs', requireAdmin, async (request, response) => {
+  if (!pool) {
+    return response.json({
+      faqs: demoAssistantFaqs.filter((faq) => faq.active).map(toPublicAssistantFaq),
+      source: 'demo'
+    });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, category, question, answer, keywords_json, active, created_at, updated_at
+     FROM assistant_faqs
+     WHERE active = 1
+     ORDER BY category ASC, id DESC`
+  );
+
+  return response.json({ faqs: rows.map(toPublicAssistantFaq), source: 'mysql' });
+});
+
+app.post('/api/admin/assistant/faqs', requireAdmin, async (request, response) => {
+  try {
+    const faq = normalizeAssistantFaqPayload(request.body);
+
+    if (!pool) {
+      const created = {
+        id: Date.now(),
+        ...faq,
+        active: 1,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      demoAssistantFaqs.unshift(created);
+      return response.status(201).json({
+        ok: true,
+        faq: toPublicAssistantFaq(created),
+        message: 'FAQ criada para o assistente.'
+      });
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO assistant_faqs (category, question, answer, keywords_json, active)
+       VALUES (:category, :question, :answer, :keywords, :active)`,
+      {
+        ...faq,
+        keywords: JSON.stringify(faq.keywords)
+      }
+    );
+
+    return response.status(201).json({
+      ok: true,
+      faq: { ...faq, id: result.insertId },
+      message: 'FAQ criada para o assistente.'
+    });
+  } catch (error) {
+    return response.status(422).json({ message: error.message });
+  }
+});
+
+app.put('/api/admin/assistant/faqs/:id', requireAdmin, async (request, response) => {
+  const id = Number(request.params.id);
+
+  if (!Number.isFinite(id)) {
+    return response.status(422).json({ message: 'ID invÃ¡lido.' });
+  }
+
+  try {
+    const faq = normalizeAssistantFaqPayload(request.body);
+
+    if (!pool) {
+      const item = demoAssistantFaqs.find((entry) => Number(entry.id) === id);
+
+      if (!item) {
+        return response.status(404).json({ message: 'FAQ nÃ£o encontrada.' });
+      }
+
+      Object.assign(item, faq, { updated_at: new Date().toISOString() });
+      return response.json({ ok: true, faq: toPublicAssistantFaq(item), message: 'FAQ atualizada.' });
+    }
+
+    const [result] = await pool.query(
+      `UPDATE assistant_faqs SET
+        category = :category,
+        question = :question,
+        answer = :answer,
+        keywords_json = :keywords,
+        active = :active
+       WHERE id = :id`,
+      {
+        ...faq,
+        id,
+        keywords: JSON.stringify(faq.keywords)
+      }
+    );
+
+    if (result.affectedRows === 0) {
+      return response.status(404).json({ message: 'FAQ nÃ£o encontrada.' });
+    }
+
+    return response.json({ ok: true, faq: { ...faq, id }, message: 'FAQ atualizada.' });
+  } catch (error) {
+    return response.status(422).json({ message: error.message });
+  }
+});
+
+app.delete('/api/admin/assistant/faqs/:id', requireAdmin, async (request, response) => {
+  const id = Number(request.params.id);
+
+  if (!Number.isFinite(id)) {
+    return response.status(422).json({ message: 'ID invÃ¡lido.' });
+  }
+
+  if (!pool) {
+    const item = demoAssistantFaqs.find((entry) => Number(entry.id) === id);
+
+    if (!item) {
+      return response.status(404).json({ message: 'FAQ nÃ£o encontrada.' });
+    }
+
+    item.active = 0;
+    return response.json({ ok: true, message: 'FAQ removida do assistente.' });
+  }
+
+  const [result] = await pool.query('UPDATE assistant_faqs SET active = 0 WHERE id = :id', { id });
+
+  if (result.affectedRows === 0) {
+    return response.status(404).json({ message: 'FAQ nÃ£o encontrada.' });
+  }
+
+  return response.json({ ok: true, message: 'FAQ removida do assistente.' });
+});
+
+app.get('/api/admin/assistant/logs', requireAdmin, async (request, response) => {
+  if (!pool) {
+    return response.json({ logs: demoAssistantLogs.slice(0, 80).map(toPublicAssistantLog), source: 'demo' });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, user_question, assistant_answer, matched_faq_id, confidence, answered, created_at
+     FROM assistant_logs
+     ORDER BY created_at DESC
+     LIMIT 100`
+  );
+
+  return response.json({ logs: rows.map(toPublicAssistantLog), source: 'mysql' });
+});
+
 app.get('/api/admin/overview', requireAdmin, async (request, response) => {
   if (!pool) {
     ensureDemoAdmin();
@@ -1486,6 +1934,7 @@ app.get('/api/admin/overview', requireAdmin, async (request, response) => {
         contacts: demoContacts.length,
         pending: demoReservations.filter((item) => item.status === 'pendente').length,
         users: demoUsers.length,
+        assistantPending: demoAssistantLogs.filter((item) => !item.answered).length,
         contents:
           demoCatalog.destinations.length +
           demoCatalog.hotels.length +
@@ -1505,6 +1954,9 @@ app.get('/api/admin/overview', requireAdmin, async (request, response) => {
   const [[userCount]] = await pool.query('SELECT COUNT(*) AS total FROM users');
   const [[pendingCount]] = await pool.query(
     "SELECT COUNT(*) AS total FROM reservations WHERE status = 'pendente'"
+  );
+  const [[assistantPendingCount]] = await pool.query(
+    'SELECT COUNT(*) AS total FROM assistant_logs WHERE answered = 0'
   );
   const [contentCounts] = await pool.query(
     `SELECT
@@ -1534,6 +1986,7 @@ app.get('/api/admin/overview', requireAdmin, async (request, response) => {
       contacts: contactCount.total,
       pending: pendingCount.total,
       users: userCount.total,
+      assistantPending: assistantPendingCount.total,
       contents: Object.values(contentCounts[0]).reduce((sum, total) => sum + Number(total), 0)
     },
     contentCounts: contentCounts[0],

@@ -1,7 +1,9 @@
 import {
+  Bot,
   CalendarDays,
   CircleDollarSign,
   Filter,
+  HelpCircle,
   Layers3,
   LockKeyhole,
   LogOut,
@@ -16,14 +18,19 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   adminLogin,
+  createAdminAssistantFaq,
   createAdminResource,
+  deleteAdminAssistantFaq,
   deleteAdminResource,
   deleteAdminUser,
+  getAdminAssistantFaqs,
+  getAdminAssistantLogs,
   getAdminOverview,
   getAdminReservations,
   getAdminUsers,
   updateAdminUser,
   updateAdminUserRole,
+  updateAdminAssistantFaq,
   updateAdminResource
 } from '../services/api';
 import { FileUploadField } from './FileUploadField';
@@ -446,6 +453,248 @@ function UserEditModal({ user, token, onClose, onSaved }) {
   );
 }
 
+const emptyAssistantFaqForm = {
+  category: 'Geral',
+  question: '',
+  answer: '',
+  keywords: ''
+};
+
+function buildAssistantFaqForm(faq) {
+  if (!faq) {
+    return emptyAssistantFaqForm;
+  }
+
+  return {
+    category: faq.category || 'Geral',
+    question: faq.question || '',
+    answer: faq.answer || '',
+    keywords: faq.keywords?.join(', ') || ''
+  };
+}
+
+function AssistantAdminPanel({ token }) {
+  const [faqs, setFaqs] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [editingFaq, setEditingFaq] = useState(null);
+  const [form, setForm] = useState(emptyAssistantFaqForm);
+  const [status, setStatus] = useState({ type: 'idle', message: '' });
+
+  const unansweredLogs = useMemo(() => logs.filter((log) => !log.answered), [logs]);
+
+  const loadAssistantData = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
+    const [faqPayload, logPayload] = await Promise.all([
+      getAdminAssistantFaqs(token),
+      getAdminAssistantLogs(token)
+    ]);
+    setFaqs(faqPayload.faqs || []);
+    setLogs(logPayload.logs || []);
+  }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadAssistantData()
+      .then(() => {
+        if (!cancelled) {
+          setStatus({ type: 'idle', message: '' });
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setStatus({ type: 'error', message: error.message });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadAssistantData]);
+
+  function updateField(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  function startEdit(faq) {
+    setEditingFaq(faq);
+    setForm(buildAssistantFaqForm(faq));
+    setStatus({ type: 'idle', message: '' });
+  }
+
+  function cancelEdit() {
+    setEditingFaq(null);
+    setForm(emptyAssistantFaqForm);
+  }
+
+  function useLogAsQuestion(log) {
+    setEditingFaq(null);
+    setForm((current) => ({
+      ...current,
+      question: log.question,
+      keywords: log.question
+    }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setStatus({
+      type: 'loading',
+      message: editingFaq ? 'A atualizar resposta...' : 'A criar resposta...'
+    });
+
+    try {
+      const payload = editingFaq
+        ? await updateAdminAssistantFaq(token, editingFaq.id, form)
+        : await createAdminAssistantFaq(token, form);
+
+      await loadAssistantData();
+      setEditingFaq(null);
+      setForm(emptyAssistantFaqForm);
+      setStatus({ type: 'success', message: payload.message || 'Assistente atualizado.' });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    }
+  }
+
+  async function handleDelete(faq) {
+    const confirmed = window.confirm(`Remover a pergunta "${faq.question}" do assistente?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setStatus({ type: 'loading', message: 'A remover FAQ...' });
+
+    try {
+      const payload = await deleteAdminAssistantFaq(token, faq.id);
+      await loadAssistantData();
+      if (editingFaq?.id === faq.id) {
+        cancelEdit();
+      }
+      setStatus({ type: 'success', message: payload.message || 'FAQ removida.' });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    }
+  }
+
+  return (
+    <section className="admin-assistant-panel">
+      <div className="admin-section-title">
+        <Bot size={18} />
+        <strong>Assistente FAQ</strong>
+      </div>
+
+      <div className="assistant-admin-layout">
+        <form className="admin-create-form" onSubmit={handleSubmit}>
+          <div className="admin-create-form__header">
+            <div>
+              <strong>{editingFaq ? 'Editar resposta' : 'Treinar nova resposta'}</strong>
+              <p>Cria perguntas frequentes com palavras-chave para o assistente responder sem custo externo.</p>
+            </div>
+            {editingFaq ? (
+              <button className="icon-button-inline" type="button" onClick={cancelEdit} aria-label="Cancelar edição">
+                <X size={18} />
+              </button>
+            ) : (
+              <HelpCircle size={20} />
+            )}
+          </div>
+
+          <div className="form-grid">
+            <label>
+              Categoria
+              <input name="category" value={form.category} onChange={updateField} required />
+            </label>
+            <label>
+              Palavras-chave
+              <input
+                name="keywords"
+                value={form.keywords}
+                onChange={updateField}
+                placeholder="reserva, hotel, conta"
+              />
+            </label>
+            <label className="field-wide">
+              Pergunta
+              <input name="question" value={form.question} onChange={updateField} required />
+            </label>
+            <label className="field-wide">
+              Resposta
+              <textarea name="answer" value={form.answer} onChange={updateField} rows="5" required />
+            </label>
+          </div>
+
+          <button className="button button--primary" type="submit">
+            {editingFaq ? <Pencil size={18} /> : <Plus size={18} />}
+            {editingFaq ? 'Guardar resposta' : 'Criar resposta'}
+          </button>
+          {status.message && <p className={`form-status form-status--${status.type}`}>{status.message}</p>}
+        </form>
+
+        <div className="assistant-admin-side">
+          <div>
+            <div className="admin-section-title">
+              <SparklesIcon />
+              <strong>FAQs ativas</strong>
+            </div>
+            <div className="assistant-faq-list">
+              {faqs.map((faq) => (
+                <article key={faq.id}>
+                  <div>
+                    <span>{faq.category}</span>
+                    <strong>{faq.question}</strong>
+                    <p>{faq.answer}</p>
+                  </div>
+                  <div className="admin-item-actions">
+                    <button className="button button--soft" type="button" onClick={() => startEdit(faq)}>
+                      <Pencil size={16} />
+                      Editar
+                    </button>
+                    <button className="button button--danger" type="button" onClick={() => handleDelete(faq)}>
+                      <Trash2 size={16} />
+                      Eliminar
+                    </button>
+                  </div>
+                </article>
+              ))}
+              {faqs.length === 0 && <p className="empty-state">Ainda não há FAQs ativas.</p>}
+            </div>
+          </div>
+
+          <div>
+            <div className="admin-section-title">
+              <Filter size={18} />
+              <strong>Perguntas por melhorar</strong>
+            </div>
+            <div className="assistant-log-list">
+              {unansweredLogs.slice(0, 6).map((log) => (
+                <article key={log.id}>
+                  <p>{log.question}</p>
+                  <button className="button button--soft" type="button" onClick={() => useLogAsQuestion(log)}>
+                    Criar FAQ
+                  </button>
+                </article>
+              ))}
+              {unansweredLogs.length === 0 && (
+                <p className="empty-state">Nenhuma dúvida sem resposta por enquanto.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SparklesIcon() {
+  return <Bot size={18} />;
+}
+
 export function AdminPanel({ catalog, onContentChanged }) {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [token, setToken] = useState(() => localStorage.getItem(tokenKey));
@@ -710,6 +959,10 @@ export function AdminPanel({ catalog, onContentChanged }) {
               <strong>{overview?.metrics?.pending ?? 0}</strong>
             </div>
             <div>
+              <span>Dúvidas</span>
+              <strong>{overview?.metrics?.assistantPending ?? 0}</strong>
+            </div>
+            <div>
               <span>Utilizadores</span>
               <strong>{overview?.metrics?.users ?? users.length}</strong>
             </div>
@@ -781,6 +1034,8 @@ export function AdminPanel({ catalog, onContentChanged }) {
               )}
             </div>
           </section>
+
+          <AssistantAdminPanel token={token} />
 
           <div className="admin-content-layout">
             <div>

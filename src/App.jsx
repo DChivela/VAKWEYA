@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Footer } from './components/Footer';
 import { Header } from './components/Header';
+import { VirtualAssistant } from './components/VirtualAssistant';
 import { catalog as localCatalog } from './data/catalog';
 import { routePaths } from './data/navigation';
 import {
@@ -127,6 +128,7 @@ export default function App() {
       <Header menuOpen={menuOpen} setMenuOpen={setMenuOpen} currentPath={currentPath} />
       <main>{renderPage()}</main>
       <Footer />
+      <VirtualAssistant />
     </>
   );
 }
