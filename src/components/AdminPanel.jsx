@@ -346,7 +346,7 @@ function UserEditModal({ user, token, onClose, onSaved }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    setStatus({ type: 'loading', message: 'A guardar alteraÃ§Ãµes...' });
+    setStatus({ type: 'loading', message: 'A guardar alterações...' });
 
     try {
       const payload = await updateAdminUser(token, user.id, {
@@ -394,7 +394,7 @@ function UserEditModal({ user, token, onClose, onSaved }) {
             <input name="name" value={form.name} onChange={updateField} required />
           </label>
           <label>
-            UsuÃ¡rio
+            Usuário
             <input
               name="username"
               value={form.username}
@@ -434,7 +434,7 @@ function UserEditModal({ user, token, onClose, onSaved }) {
 
         {isRootUser && (
           <p className="admin-root-note">
-            A conta dchivela nÃ£o pode ser eliminada, renomeada ou despromovida.
+            A conta dchivela não pode ser eliminada, renomeada ou despromovida.
           </p>
         )}
 
@@ -444,7 +444,7 @@ function UserEditModal({ user, token, onClose, onSaved }) {
           </button>
           <button className="button button--primary" type="submit">
             <Pencil size={18} />
-            Guardar alteraÃ§Ãµes
+            Guardar alterações
           </button>
         </div>
         {status.message && <p className={`form-status form-status--${status.type}`}>{status.message}</p>}
@@ -829,7 +829,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
       return;
     }
 
-    setStatus({ type: 'loading', message: 'A eliminar conteÃºdo...' });
+    setStatus({ type: 'loading', message: 'A eliminar conteúdo...' });
 
     try {
       const payload = await deleteAdminResource(token, activeResource, item.id);
@@ -837,19 +837,19 @@ export function AdminPanel({ catalog, onContentChanged }) {
         setSelectedItem(null);
       }
       await handleContentSaved();
-      setStatus({ type: 'success', message: payload.message || 'ConteÃºdo eliminado.' });
+      setStatus({ type: 'success', message: payload.message || 'Conteúdo eliminado.' });
     } catch (error) {
       setStatus({ type: 'error', message: error.message });
     }
   }
 
   async function handleRoleChange(user, role) {
-    setStatus({ type: 'loading', message: 'A atualizar permissÃµes...' });
+    setStatus({ type: 'loading', message: 'A atualizar permissões...' });
 
     try {
       const payload = await updateAdminUserRole(token, user.id, role);
       await loadUsers();
-      setStatus({ type: 'success', message: payload.message || 'PermissÃ£o atualizada.' });
+      setStatus({ type: 'success', message: payload.message || 'Permissão atualizada.' });
     } catch (error) {
       setStatus({ type: 'error', message: error.message });
     }
@@ -863,7 +863,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
     if (user.username === 'dchivela') {
       setStatus({
         type: 'error',
-        message: 'A conta raiz dchivela nÃ£o pode ser eliminada.'
+        message: 'A conta raiz dchivela não pode ser eliminada.'
       });
       return;
     }
@@ -904,7 +904,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
       {!token ? (
         <form className="admin-login" onSubmit={handleLogin}>
           <label>
-            Usuário
+            Usuário (Nome de utilizador ou email)
             <input
               name="username"
               value={credentials.username}
@@ -1140,7 +1140,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
           <section className="admin-users-panel">
             <div className="admin-section-title">
               <Users size={18} />
-              <strong>GestÃ£o de utilizadores</strong>
+              <strong>Gestão de utilizadores</strong>
             </div>
             <div className="admin-user-list">
               {users.map((user) => (
@@ -1148,7 +1148,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
                   <img src={user.avatar || '/assets/logo-vakwetu.png'} alt="" />
                   <div>
                     <strong>{user.name}</strong>
-                    <span>@{user.username} Â· {user.email || 'sem email'}</span>
+                    <span>@{user.username} · {user.email || 'sem email'}</span>
                   </div>
                   <span className={user.role === 'admin' ? 'status-pill status-pill--admin' : 'status-pill'}>
                     {user.role}
