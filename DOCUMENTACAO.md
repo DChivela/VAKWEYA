@@ -214,6 +214,34 @@ Limite no backend:
 
 - 5 MB por imagem.
 
+### 5.6 PWA e Instalacao Mobile
+
+Ficheiros principais:
+
+- `public/manifest.webmanifest`
+- `public/sw.js`
+- `public/pwa/icon-192.png`
+- `public/pwa/icon-512.png`
+- `public/pwa/maskable-512.png`
+- `src/components/PWAInstallPrompt.jsx`
+- `src/main.jsx`
+
+O projeto esta preparado como Progressive Web App.
+
+Funcionalidades:
+
+- Manifesto com nome, icones, cor de tema e atalhos.
+- Icones para Android/Chrome e modo maskable.
+- Service worker para cache basico da interface.
+- Botao `Instalar app` quando o navegador permitir.
+- Modo standalone quando instalado no dispositivo.
+
+Notas importantes:
+
+- Em desenvolvimento local, o service worker so e registado no build de producao.
+- Para funcionar como PWA fora do localhost, o site precisa estar em HTTPS.
+- As rotas `/api/*` nao sao cacheadas para evitar dados antigos de login, reservas e painel administrativo.
+
 ## 6. Paginas Publicas
 
 Ficheiro: `src/pages/PublicPages.jsx`
@@ -354,7 +382,54 @@ Na pagina `/conta`, o utilizador autenticado consegue consultar:
 
 Isto permite que o cliente acompanhe o proprio historico sem acesso ao painel administrativo.
 
-## 8. Mapa Interativo
+## 8. Assistente Virtual FAQ
+
+Ficheiros principais:
+
+- `src/components/VirtualAssistant.jsx`
+- `server/index.js`
+- `src/services/api.js`
+
+O site possui um assistente virtual proprio, gratuito e baseado em perguntas frequentes.
+
+Funciona assim:
+
+- O utilizador abre o botao flutuante no canto inferior direito.
+- Pode clicar em sugestoes ou escrever uma pergunta.
+- O backend procura a melhor resposta na tabela `assistant_faqs`.
+- Quando encontra resposta segura, devolve a resposta cadastrada.
+- Quando nao encontra, responde de forma honesta e grava a pergunta em `assistant_logs`.
+
+### 8.1 Treinamento do Assistente
+
+O treinamento e feito pelo painel administrativo, sem depender de IA externa.
+
+O administrador pode:
+
+- Criar perguntas frequentes.
+- Editar perguntas, respostas, categorias e palavras-chave.
+- Eliminar FAQs do assistente.
+- Ver perguntas sem resposta para transformar em novas FAQs.
+
+Tabelas:
+
+- `assistant_faqs`: base de conhecimento do assistente.
+- `assistant_logs`: historico de perguntas feitas pelos utilizadores.
+
+Endpoints publicos:
+
+- `GET /api/assistant/suggestions`
+- `POST /api/assistant/chat`
+
+Endpoints administrativos:
+
+- `GET /api/admin/assistant/faqs`
+- `POST /api/admin/assistant/faqs`
+- `PUT /api/admin/assistant/faqs/:id`
+- `DELETE /api/admin/assistant/faqs/:id`
+- `GET /api/admin/assistant/logs`
+
+## 9. Mapa Interativo
 
 Ficheiro: `src/components/InteractiveMap.jsx`
 
@@ -366,7 +441,7 @@ Funcionalidades:
 - Destinos criados no admin tambem aparecem no mapa se tiverem provincia e coordenadas.
 - Botao de reserva contextual para o destino selecionado.
 
-## 9. Painel Administrativo
+## 10. Painel Administrativo
 
 Ficheiro: `src/components/AdminPanel.jsx`
 
@@ -378,17 +453,18 @@ Acesso:
 
 So utilizadores com role `admin` podem alterar conteudos.
 
-### 9.1 Metricas
+### 10.1 Metricas
 
 Mostra:
 
 - Reservas
 - Contactos
 - Pendentes
+- Duvidas sem resposta do assistente
 - Utilizadores
 - Conteudos
 
-### 9.2 Consulta de Reservas
+### 10.2 Consulta de Reservas
 
 O painel administrativo tem uma area separada para consultar todas as reservas.
 
@@ -411,7 +487,7 @@ Cada reserva mostra:
 - Estado
 - Observacoes
 
-### 9.3 Reservas Recentes
+### 10.3 Reservas Recentes
 
 Mostra pedidos recentes de reserva:
 
@@ -420,7 +496,7 @@ Mostra pedidos recentes de reserva:
 - Numero de pessoas
 - Estado
 
-### 9.4 Contactos Recentes
+### 10.4 Contactos Recentes
 
 Mostra mensagens recebidas:
 
@@ -428,7 +504,7 @@ Mostra mensagens recebidas:
 - Assunto
 - Estado
 
-### 9.5 Gestao de Conteudos
+### 10.5 Gestao de Conteudos
 
 Permite criar, editar e eliminar:
 
@@ -441,7 +517,7 @@ Permite criar, editar e eliminar:
 
 Campos de imagem usam seletor de ficheiro.
 
-### 9.6 Edicao de Conteudos
+### 10.6 Edicao de Conteudos
 
 Ao selecionar `Editar`, o formulario administrativo e preenchido com os dados atuais.
 
@@ -451,7 +527,7 @@ Depois de guardar:
 - O frontend recarrega o catalogo.
 - O conteudo publico e atualizado.
 
-### 9.6 Eliminacao de Conteudos
+### 10.7 Eliminacao de Conteudos
 
 O sistema usa eliminacao logica para conteudos na base de dados:
 
@@ -459,7 +535,7 @@ O sistema usa eliminacao logica para conteudos na base de dados:
 
 Assim o item deixa de aparecer no site publico sem apagar fisicamente a linha.
 
-## 10. Gestao de Utilizadores
+## 11. Gestao de Utilizadores
 
 No painel admin existe uma section para utilizadores.
 
@@ -476,7 +552,7 @@ Permite:
 - Definir nova palavra-passe opcional.
 - Eliminar utilizadores comuns.
 
-### 10.1 Modal de Edicao
+### 11.1 Modal de Edicao
 
 O modal foi criado para ser elegante e focado.
 
@@ -495,7 +571,7 @@ Tipos:
 - Cliente
 - Administrador
 
-### 10.2 Protecao do dchivela
+### 11.2 Protecao do dchivela
 
 A conta `dchivela` e especial.
 
@@ -507,7 +583,7 @@ Ela nao pode:
 
 Esta protecao existe no frontend e no backend.
 
-## 11. Backend
+## 12. Backend
 
 Ficheiro: `server/index.js`
 
@@ -524,8 +600,10 @@ Responsabilidades:
 - Validar permissoes administrativas.
 - Criar/editar/eliminar conteudos.
 - Gerir utilizadores.
+- Responder perguntas do assistente FAQ.
+- Gerir a base de conhecimento do assistente.
 
-## 12. Base de Dados
+## 13. Base de Dados
 
 Ficheiro: `database/weya.sql`
 
@@ -539,9 +617,11 @@ Tabelas principais:
 - `itineraries`
 - `reservations`
 - `contacts`
+- `assistant_faqs`
+- `assistant_logs`
 - `testimonials`
 
-### 12.1 users
+### 13.1 users
 
 Campos importantes:
 
@@ -558,7 +638,7 @@ Roles:
 - `admin`
 - `cliente`
 
-### 12.2 reservations
+### 13.2 reservations
 
 Guarda:
 
@@ -573,7 +653,27 @@ Guarda:
 - Notas
 - Estado
 
-## 13. Endpoints Principais
+### 13.3 assistant_faqs
+
+Guarda a base de conhecimento do assistente:
+
+- Categoria
+- Pergunta
+- Resposta
+- Palavras-chave
+- Estado ativo/inativo
+
+### 13.4 assistant_logs
+
+Guarda perguntas feitas ao assistente:
+
+- Pergunta do utilizador
+- Resposta dada
+- FAQ associada
+- Nivel de confianca
+- Se foi respondida com sucesso
+
+## 14. Endpoints Principais
 
 ### Publicos
 
@@ -584,6 +684,8 @@ POST /api/uploads
 POST /api/auth/register
 POST /api/auth/login
 GET /api/auth/me
+GET /api/assistant/suggestions
+POST /api/assistant/chat
 POST /api/reservations
 POST /api/contacts
 ```
@@ -599,12 +701,17 @@ GET /api/admin/users
 PUT /api/admin/users/:id
 PATCH /api/admin/users/:id/role
 DELETE /api/admin/users/:id
+GET /api/admin/assistant/faqs
+POST /api/admin/assistant/faqs
+PUT /api/admin/assistant/faqs/:id
+DELETE /api/admin/assistant/faqs/:id
+GET /api/admin/assistant/logs
 POST /api/admin/content/:resource
 PUT /api/admin/content/:resource/:id
 DELETE /api/admin/content/:resource/:id
 ```
 
-## 14. Autenticacao
+## 15. Autenticacao
 
 Tokens guardados no navegador:
 
@@ -630,9 +737,9 @@ Quando o utilizador clica em `Sair`:
 - O menu atualiza.
 - Se estiver em `/admin` ou `/conta`, volta para `/`.
 
-## 15. Conceitos JavaScript e React Usados
+## 16. Conceitos JavaScript e React Usados
 
-### 15.1 Componentes
+### 16.1 Componentes
 
 Um componente React e uma funcao que devolve JSX.
 
@@ -644,7 +751,7 @@ export function Header() {
 }
 ```
 
-### 15.2 Estado
+### 16.2 Estado
 
 Estado e uma memoria interna do componente.
 
@@ -658,7 +765,7 @@ const [menuOpen, setMenuOpen] = useState(false);
 
 `setMenuOpen` altera esse valor.
 
-### 15.3 Efeitos
+### 16.3 Efeitos
 
 `useEffect` executa logica quando algo muda.
 
@@ -672,7 +779,7 @@ useEffect(() => {
 
 Com `[]`, executa apenas quando o componente aparece.
 
-### 15.4 Props
+### 16.4 Props
 
 Props sao dados passados de um componente pai para um componente filho.
 
@@ -682,7 +789,7 @@ Exemplo:
 <Header currentPath={currentPath} />
 ```
 
-### 15.5 Eventos
+### 16.5 Eventos
 
 Eventos respondem a interacoes do utilizador.
 
@@ -692,7 +799,7 @@ Exemplo:
 <button onClick={logout}>Sair</button>
 ```
 
-### 15.6 Fetch/API
+### 16.6 Fetch/API
 
 O frontend comunica com o backend atraves de chamadas HTTP.
 
@@ -702,7 +809,7 @@ No projeto, isto fica centralizado em:
 src/services/api.js
 ```
 
-### 15.7 localStorage
+### 16.7 localStorage
 
 O `localStorage` guarda dados no navegador.
 
@@ -714,7 +821,7 @@ Exemplo:
 localStorage.setItem('vakwetu_user_token', token);
 ```
 
-## 16. Ficheiros Mais Importantes
+## 17. Ficheiros Mais Importantes
 
 ### Frontend
 
@@ -724,6 +831,8 @@ localStorage.setItem('vakwetu_user_token', token);
 - `src/components/AccountPanel.jsx`
 - `src/components/AdminPanel.jsx`
 - `src/components/BookingForm.jsx`
+- `src/components/PWAInstallPrompt.jsx`
+- `src/components/VirtualAssistant.jsx`
 - `src/components/InteractiveMap.jsx`
 - `src/components/FileUploadField.jsx`
 - `src/pages/PublicPages.jsx`
@@ -738,9 +847,17 @@ localStorage.setItem('vakwetu_user_token', token);
 
 - `database/weya.sql`
 
-## 17. Problemas Comuns
+### PWA
 
-### 17.1 Cannot PUT /api/admin/users/:id
+- `public/manifest.webmanifest`
+- `public/sw.js`
+- `public/pwa/icon-192.png`
+- `public/pwa/icon-512.png`
+- `public/pwa/maskable-512.png`
+
+## 18. Problemas Comuns
+
+### 18.1 Cannot PUT /api/admin/users/:id
 
 Significa que o frontend esta novo, mas a API ativa e antiga.
 
@@ -757,7 +874,7 @@ Para ver quem esta na porta `4000`:
 cmd /c netstat -ano | findstr :4000
 ```
 
-### 17.2 EPERM ao criar uploads
+### 18.2 EPERM ao criar uploads
 
 Pode acontecer se a API estiver a apontar para a pasta antiga.
 
@@ -767,7 +884,7 @@ Resolucao:
 - Rodar o projeto na pasta correta.
 - Verificar se `.env` nao tem `UPLOAD_DIR` apontando para a pasta errada.
 
-### 17.3 esbuild bloqueado pelo pnpm
+### 18.3 esbuild bloqueado pelo pnpm
 
 Resolucao:
 
@@ -777,7 +894,7 @@ pnpm approve-builds
 
 Depois selecione `esbuild`.
 
-### 17.4 Alteracoes nao aparecem
+### 18.4 Alteracoes nao aparecem
 
 Tente:
 
@@ -792,7 +909,7 @@ No navegador:
 Ctrl + F5
 ```
 
-## 18. Melhorias Futuras
+## 19. Melhorias Futuras
 
 Ideias naturais para as proximas fases:
 
@@ -807,11 +924,12 @@ Ideias naturais para as proximas fases:
 - Filtros por provincia, preco e tipo.
 - Permissoes mais granulares, como editor, operador e administrador.
 
-## 19. Resumo Rapido
+## 20. Resumo Rapido
 
 O projeto ja possui:
 
 - Site publico responsivo.
+- PWA instalavel em dispositivos compativeis.
 - Rotas separadas.
 - Catalogo de destinos, hoteis, restaurantes, tours e roteiros.
 - Mapa interativo de Angola.
@@ -819,6 +937,9 @@ O projeto ja possui:
 - Historico de reservas por cliente.
 - Consulta administrativa de todas as reservas.
 - Orcamento automatico.
+- Assistente virtual FAQ.
+- Gestao administrativa de perguntas e respostas do assistente.
+- Historico de perguntas sem resposta para treino.
 - Conta de utilizador.
 - Foto de perfil.
 - Login/logout.
