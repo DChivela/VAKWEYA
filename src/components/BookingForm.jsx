@@ -10,6 +10,12 @@ const authChangeEvent = 'vakwetu-auth-changed';
 const initialForm = {
   serviceType: 'tour',
   serviceId: '',
+  hotelRoomId: '',
+  roomQuantity: 1,
+  tourStops: [],
+  isImmediate: false,
+  scheduledAt: '',
+  routePrice: '',
   name: '',
   email: '',
   phone: '',
@@ -52,7 +58,14 @@ function formatMoney(value) {
   return Number(value).toLocaleString('pt-AO');
 }
 
-function getSuggestedBudget(serviceType, selectedService, form) {
+function getSuggestedBudget(serviceType, selectedService, selectedRoom, form) {
+  if (serviceType === 'tour' && form.tourStops?.length) {
+    return {
+      value: Number(form.routePrice || form.budget || 100000),
+      description: `${form.tourStops.length} paragem(ns), com o preço calculado no planeador da tour.`
+    };
+  }
+
   if (!selectedService) {
     return null;
   }
@@ -60,14 +73,16 @@ function getSuggestedBudget(serviceType, selectedService, form) {
   const travelers = getTravelerCount(form.travelers);
 
   if (serviceType === 'hotel') {
-    const price = Number(selectedService.price || 0);
+    const price = Number(selectedRoom?.price || selectedService.price || 0);
 
     if (!price) {
       return null;
     }
 
     const nights = getNightCount(form.startDate, form.endDate);
-    const rooms = Math.max(1, Math.ceil(travelers / 2));
+    const rooms = selectedRoom
+      ? Math.max(1, Number(form.roomQuantity || 1))
+      : Math.max(1, Math.ceil(travelers / 2));
 
     return {
       value: price * nights * rooms,
@@ -104,7 +119,7 @@ function getSuggestedBudget(serviceType, selectedService, form) {
   return null;
 }
 
-export function BookingForm({ destinations, hotels, restaurants, tours, itineraries, currentSearch = '' }) {
+export function BookingForm({ destinations, hotels, hotelRooms = [], restaurants, tours, itineraries, currentSearch = '' }) {
   const [form, setForm] = useState(initialForm);
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(authTokenKey));
   const [budgetEdited, setBudgetEdited] = useState(false);
@@ -127,9 +142,26 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
     [form.serviceId, serviceOptions]
   );
 
+  const selectedRooms = useMemo(() => {
+    if (!selectedService || form.serviceType !== 'hotel') {
+      return [];
+    }
+
+    const combined = [
+      ...(selectedService.rooms || []),
+      ...hotelRooms.filter((room) => Number(room.hotelId) === Number(selectedService.id))
+    ];
+    return [...new Map(combined.map((room) => [String(room.id), room])).values()];
+  }, [form.serviceType, hotelRooms, selectedService]);
+
+  const selectedRoom = useMemo(
+    () => selectedRooms.find((room) => String(room.id) === String(form.hotelRoomId)) || null,
+    [form.hotelRoomId, selectedRooms]
+  );
+
   const suggestedBudget = useMemo(
-    () => getSuggestedBudget(form.serviceType, selectedService, form),
-    [form, selectedService]
+    () => getSuggestedBudget(form.serviceType, selectedService, selectedRoom, form),
+    [form, selectedRoom, selectedService]
   );
 
   useEffect(() => {
@@ -176,7 +208,8 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
   }, [authToken]);
 
   useEffect(() => {
-    const { serviceType, serviceId } = parseReservationSearch(currentSearch || window.location.search);
+    const context = parseReservationSearch(currentSearch || window.location.search);
+    const { serviceType, serviceId } = context;
 
     if (!allowedServiceTypes.includes(serviceType)) {
       return;
@@ -185,7 +218,14 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
     setForm((current) => ({
       ...current,
       serviceType,
-      serviceId: serviceId || current.serviceId
+      serviceId: serviceId || current.serviceId,
+      hotelRoomId: context.hotelRoomId || '',
+      roomQuantity: Number(context.roomQuantity || 1),
+      tourStops: context.tourStops || [],
+      isImmediate: context.isImmediate,
+      scheduledAt: context.scheduledAt || '',
+      routePrice: context.budget || '',
+      budget: context.budget || current.budget
     }));
     setBudgetEdited(false);
   }, [currentSearch]);
@@ -220,7 +260,19 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
     setForm((current) => ({
       ...current,
       [name]: value,
-      ...(name === 'serviceType' ? { serviceId: '', budget: '' } : {})
+      ...(name === 'serviceType'
+        ? {
+            serviceId: '',
+            hotelRoomId: '',
+            roomQuantity: 1,
+            tourStops: [],
+            scheduledAt: '',
+            isImmediate: false,
+            routePrice: '',
+            budget: ''
+          }
+        : {}),
+      ...(name === 'serviceId' ? { hotelRoomId: '', roomQuantity: 1 } : {})
     }));
   }
 
@@ -235,6 +287,18 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
 
   async function handleSubmit(event) {
     event.preventDefault();
+
+    if (
+      selectedRoom &&
+      Number(form.travelers) > Number(selectedRoom.capacity) * Number(form.roomQuantity || 1)
+    ) {
+      setStatus({
+        type: 'error',
+        message: 'A quantidade de pessoas excede a capacidade dos quartos selecionados.'
+      });
+      return;
+    }
+
     setStatus({ type: 'loading', message: 'A preparar a tua reserva...' });
 
     try {
@@ -311,6 +375,33 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
               </select>
             </label>
 
+            {form.serviceType === 'hotel' && selectedRooms.length > 0 && (
+              <>
+                <label>
+                  Tipo de quarto
+                  <select name="hotelRoomId" value={form.hotelRoomId} onChange={updateField} required>
+                    <option value="">Escolher quarto</option>
+                    {selectedRooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.name} · {Number(room.price).toLocaleString('pt-AO')} Kz/noite
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Quantidade de quartos
+                  <input
+                    type="number"
+                    name="roomQuantity"
+                    min="1"
+                    max={selectedRoom?.stock || 10}
+                    value={form.roomQuantity}
+                    onChange={updateField}
+                  />
+                </label>
+              </>
+            )}
+
             <label>
               Nome
               <input
@@ -367,6 +458,35 @@ export function BookingForm({ destinations, hotels, restaurants, tours, itinerar
               <input type="date" name="endDate" value={form.endDate} onChange={updateField} />
             </label>
           </div>
+
+          {selectedRoom && (
+            <div className="booking-context" role="status">
+              <span>Quarto selecionado</span>
+              <strong>{selectedRoom.name}</strong>
+              <p>
+                {form.roomQuantity} quarto(s), com capacidade para até {selectedRoom.capacity} pessoa(s) por quarto.
+              </p>
+            </div>
+          )}
+
+          {form.serviceType === 'tour' && form.tourStops.length > 0 && (
+            <div className="booking-context booking-context--route" role="status">
+              <span>Tour personalizada</span>
+              <strong>{form.tourStops.length} paragem(ns) selecionada(s)</strong>
+              <div className="booking-route-stops">
+                {form.tourStops.map((stop, index) => (
+                  <span key={stop.id || `${stop.lat}-${stop.lng}`}>
+                    {index + 1}. {stop.name}
+                  </span>
+                ))}
+              </div>
+              <p>
+                {form.isImmediate
+                  ? 'Tour imediata. O administrador vai atribuir um motorista depois da confirmação.'
+                  : `Agendada para ${form.scheduledAt.replace('T', ' ')}. A atribuição final do motorista é administrativa.`}
+              </p>
+            </div>
+          )}
 
           {selectedService && (
             <div className="booking-context" role="status">

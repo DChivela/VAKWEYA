@@ -71,6 +71,29 @@ export async function getMyReservations(token) {
   return request('/reservations/me', { token });
 }
 
+export async function getAvailableDrivers(scheduledAt) {
+  const params = new URLSearchParams();
+
+  if (scheduledAt) {
+    params.set('scheduledAt', scheduledAt);
+  }
+
+  const query = params.toString();
+  return request(`/drivers/available${query ? `?${query}` : ''}`);
+}
+
+export async function getDriverDashboard(token) {
+  return request('/driver/dashboard', { token });
+}
+
+export async function updateDriverAvailability(token, data) {
+  return request('/driver/availability', {
+    method: 'PATCH',
+    token,
+    body: data
+  });
+}
+
 export async function uploadImage(data, token) {
   return request('/uploads', {
     method: 'POST',
@@ -188,6 +211,26 @@ export async function deleteAdminResource(token, resource, id) {
 
 export async function getAdminUsers(token) {
   return request('/admin/users', { token });
+}
+
+export async function getAdminDrivers(token) {
+  return request('/admin/drivers', { token });
+}
+
+export async function updateAdminDriver(token, userId, data) {
+  return request(`/admin/drivers/${userId}`, {
+    method: 'PUT',
+    token,
+    body: data
+  });
+}
+
+export async function assignReservationDriver(token, reservationId, driverId) {
+  return request(`/admin/reservations/${reservationId}/assign-driver`, {
+    method: 'PATCH',
+    token,
+    body: { driverId }
+  });
 }
 
 export async function updateAdminUser(token, id, data) {

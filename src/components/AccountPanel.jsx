@@ -1,6 +1,7 @@
 import { CalendarDays, CircleDollarSign, History, LogIn, LogOut, ShieldCheck, UserPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getCurrentUser, getMyReservations, loginUser, registerUser } from '../services/api';
+import { DriverDashboard } from './DriverDashboard';
 import { FileUploadField } from './FileUploadField';
 import { SectionHeader } from './SectionHeader';
 
@@ -31,6 +32,12 @@ const serviceLabels = {
   restaurante: 'Restaurante',
   tour: 'Tour',
   roteiro: 'Roteiro'
+};
+
+const roleLabels = {
+  admin: 'Administrador',
+  cliente: 'Viajante',
+  motorista: 'Motorista'
 };
 
 function formatDate(value) {
@@ -137,6 +144,26 @@ function ReservationHistory({ token }) {
                 <span>{reservation.travelers} pessoa(s)</span>
               </div>
               {reservation.notes && <p>{reservation.notes}</p>}
+              {reservation.hotelRoomName && (
+                <p><strong>Quarto:</strong> {reservation.hotelRoomName} · {reservation.roomQuantity} unidade(s)</p>
+              )}
+              {reservation.tourStops?.length > 0 && (
+                <p><strong>Rota:</strong> {reservation.tourStops.map((stop) => stop.name).join(' → ')}</p>
+              )}
+              {reservation.driver && (
+                <div className="reservation-driver-confirmation">
+                  <img src={reservation.driver.avatar || '/assets/logo-vakwetu.png'} alt="" />
+                  <div>
+                    <span>Motorista atribuído</span>
+                    <strong>{reservation.driver.name}</strong>
+                    <small>
+                      {reservation.driver.vehicle
+                        ? `${reservation.driver.vehicle.make} ${reservation.driver.vehicle.model} · ${reservation.driver.vehicle.licensePlate}`
+                        : 'Veículo por confirmar'}
+                    </small>
+                  </div>
+                </div>
+              )}
             </article>
           ))}
         </div>
@@ -245,7 +272,7 @@ export function AccountPanel() {
           <div className="account-profile__hero">
             <img src={user.avatar || '/assets/logo-vakwetu.png'} alt="" />
             <div>
-              <span>{user.role === 'admin' ? 'Administrador' : 'Viajante'}</span>
+              <span>{roleLabels[user.role] || 'Viajante'}</span>
               <h3>{user.name}</h3>
               <p>@{user.username}</p>
             </div>
@@ -266,6 +293,7 @@ export function AccountPanel() {
               Sair
             </button>
           </div>
+          {user.role === 'motorista' && <DriverDashboard token={token} />}
           <ReservationHistory token={token} />
         </div>
       ) : (

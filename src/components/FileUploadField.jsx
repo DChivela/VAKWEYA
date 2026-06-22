@@ -82,3 +82,83 @@ export function FileUploadField({
     </div>
   );
 }
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Não foi possível ler a imagem.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+export function MultiImageUploadField({
+  label = 'Galeria de imagens',
+  value,
+  onChange,
+  token,
+  folder = 'galleries',
+  maxFiles = 6
+}) {
+  const inputId = useId();
+  const [status, setStatus] = useState({ type: 'idle', message: '' });
+  const images = Array.isArray(value)
+    ? value
+    : String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+
+  async function handleFiles(event) {
+    const files = [...(event.target.files || [])]
+      .filter((file) => file.type.startsWith('image/'))
+      .slice(0, Math.max(0, maxFiles - images.length));
+
+    if (files.length === 0) {
+      setStatus({ type: 'error', message: 'Escolhe uma ou mais imagens válidas.' });
+      return;
+    }
+
+    setStatus({ type: 'loading', message: 'A carregar galeria...' });
+    try {
+      const uploaded = [];
+      for (const file of files) {
+        const dataUrl = await fileToDataUrl(file);
+        const payload = await uploadImage({ dataUrl, filename: file.name, folder }, token);
+        uploaded.push(payload.url);
+      }
+      onChange([...images, ...uploaded].join(', '));
+      setStatus({ type: 'success', message: `${uploaded.length} imagem(ns) carregada(s).` });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    } finally {
+      event.target.value = '';
+    }
+  }
+
+  function removeImage(image) {
+    onChange(images.filter((item) => item !== image).join(', '));
+  }
+
+  return (
+    <div className="file-upload file-upload--multi">
+      <span>{label}</span>
+      <div className="file-upload__gallery">
+        {images.map((image) => (
+          <div className="file-upload__preview" key={image}>
+            <img src={image} alt="" />
+            <button type="button" onClick={() => removeImage(image)} aria-label="Remover imagem">
+              <X size={15} />
+            </button>
+          </div>
+        ))}
+        {images.length === 0 && <div className="file-upload__empty"><ImagePlus size={22} /></div>}
+      </div>
+      <label className="file-upload__button" htmlFor={inputId}>
+        {status.type === 'loading' ? <Loader2 size={16} /> : <ImagePlus size={16} />}
+        Adicionar imagens
+      </label>
+      <input id={inputId} type="file" accept="image/*" multiple onChange={handleFiles} />
+      {status.message && (
+        <small className={`file-upload__status file-upload__status--${status.type}`}>{status.message}</small>
+      )}
+    </div>
+  );
+}

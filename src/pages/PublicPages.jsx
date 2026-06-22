@@ -8,11 +8,13 @@ import { ContactSection } from '../components/ContactSection';
 import { Destinations } from '../components/Destinations';
 import { ExperienceCard } from '../components/ExperienceCard';
 import { Hero } from '../components/Hero';
+import { HotelRoomsSection } from '../components/HotelRoomsSection';
 import { InteractiveMap } from '../components/InteractiveMap';
 import { PageHero } from '../components/PageHero';
 import { SectionHeader } from '../components/SectionHeader';
 import { Services } from '../components/Services';
 import { Testimonials } from '../components/Testimonials';
+import { TourPlanner } from '../components/TourPlanner';
 import { assets } from '../data/catalog';
 import { reservationLink } from '../services/reservationLinks';
 
@@ -66,7 +68,10 @@ export function DestinationsPage({ data }) {
   );
 }
 
-export function HotelsPage({ data }) {
+export function HotelsPage({ data, currentSearch = '' }) {
+  const selectedHotelId = new URLSearchParams(currentSearch).get('hotel');
+  const selectedHotel = data.hotels.find((hotel) => String(hotel.id) === String(selectedHotelId));
+
   return (
     <>
       <PageHero
@@ -75,6 +80,9 @@ export function HotelsPage({ data }) {
         text="Estadias selecionadas para grupos jovens, viagens rápidas e escapadas com conforto."
         image={assets.lodge}
       />
+      {selectedHotel && (
+        <HotelRoomsSection hotel={selectedHotel} allRooms={data.hotelRooms || []} />
+      )}
       <section className="section shell">
         <SectionHeader
           eyebrow="Ficar"
@@ -92,8 +100,8 @@ export function HotelsPage({ data }) {
               price={hotel.price}
               rating={hotel.rating}
               tags={hotel.amenities?.slice(0, 3)}
-              action="Reservar quarto"
-              actionHref={reservationLink('hotel', hotel)}
+              action="Ver quartos"
+              actionHref={`/hoteis?hotel=${hotel.id}`}
             />
           ))}
         </div>
@@ -147,6 +155,7 @@ export function ToursPage({ data }) {
         text="Trilhas, cultura urbana, dunas, miradouros e aventuras prontas para reservar."
         image={assets.waterfall}
       />
+      <TourPlanner destinations={data.destinations} />
       <section className="section shell">
         <SectionHeader
           eyebrow="Experiências"
@@ -235,6 +244,7 @@ export function ReservationsPage({ data, currentSearch }) {
       <BookingForm
         destinations={data.destinations}
         hotels={data.hotels}
+        hotelRooms={data.hotelRooms || []}
         restaurants={data.restaurants}
         tours={data.tours}
         itineraries={data.itineraries}
@@ -253,7 +263,7 @@ export function MapPage({ data }) {
         text="Pontos clicáveis sobre um contorno real de Angola, com Cabinda incluída."
         image={assets.hero}
       />
-      <InteractiveMap destinations={data.destinations} />
+      <TourPlanner destinations={data.destinations} />
     </>
   );
 }

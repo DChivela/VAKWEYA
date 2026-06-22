@@ -33,7 +33,8 @@ import {
   updateAdminAssistantFaq,
   updateAdminResource
 } from '../services/api';
-import { FileUploadField } from './FileUploadField';
+import { FileUploadField, MultiImageUploadField } from './FileUploadField';
+import { DriverAdminPanel } from './DriverAdminPanel';
 import { SectionHeader } from './SectionHeader';
 
 const tokenKey = 'vakwetu_admin_token';
@@ -111,6 +112,20 @@ const resourceConfigs = {
       { name: 'amenities', label: 'Comodidades', placeholder: 'Wi-Fi, Pequeno-almoço, Transfer' }
     ]
   },
+  hotelRooms: {
+    label: 'Quartos',
+    description: 'Cria tipos de quarto e associa-os ao respetivo hotel.',
+    fields: [
+      { name: 'hotelId', label: 'Hotel', selectFrom: 'hotels', required: true },
+      { name: 'name', label: 'Nome do quarto', required: true },
+      { name: 'price', label: 'Preço por noite', type: 'number', required: true },
+      { name: 'capacity', label: 'Capacidade', type: 'number', min: '1', defaultValue: '2' },
+      { name: 'stock', label: 'Quantidade disponível', type: 'number', min: '1', defaultValue: '1' },
+      { name: 'amenities', label: 'Comodidades', placeholder: 'Cama queen, Wi-Fi, Varanda' },
+      { name: 'images', label: 'Galeria do quarto', multiUpload: true },
+      { name: 'description', label: 'Descrição', textarea: true, required: true }
+    ]
+  },
   restaurants: {
     label: 'Restaurantes',
     description: 'Publica restaurantes e experiências gastronómicas.',
@@ -184,6 +199,11 @@ function serializeItemToForm(resource, item, config) {
       ...item,
       amenities: item.amenities?.join(', ') || ''
     },
+    hotelRooms: {
+      ...item,
+      amenities: item.amenities?.join(', ') || '',
+      images: item.images?.join(', ') || ''
+    },
     restaurants: item,
     tours: item,
     itineraries: {
@@ -202,7 +222,7 @@ function serializeItemToForm(resource, item, config) {
   }, {});
 }
 
-function ResourceCreationForm({ activeResource, token, selectedItem, onCancelEdit, onSaved }) {
+function ResourceCreationForm({ activeResource, token, selectedItem, catalog, onCancelEdit, onSaved }) {
   const config = resourceConfigs[activeResource];
   const [form, setForm] = useState(() => buildInitialForm(config));
   const [status, setStatus] = useState({ type: 'idle', message: '' });
@@ -283,10 +303,32 @@ function ResourceCreationForm({ activeResource, token, selectedItem, onCancelEdi
                 onChange={(value) => updateFormValue(field.name, value)}
               />
             </div>
+          ) : field.multiUpload ? (
+            <div key={field.name} className="field-wide">
+              <MultiImageUploadField
+                label={field.label}
+                value={form[field.name]}
+                token={token}
+                folder={activeResource}
+                onChange={(value) => updateFormValue(field.name, value)}
+              />
+            </div>
           ) : (
             <label key={field.name} className={field.textarea ? 'field-wide' : ''}>
               {field.label}
-              {field.textarea ? (
+              {field.selectFrom ? (
+              <select
+                name={field.name}
+                value={form[field.name]}
+                onChange={updateField}
+                required={field.required}
+              >
+                <option value="">Selecionar</option>
+                {(catalog?.[field.selectFrom] || []).map((option) => (
+                  <option key={option.id} value={option.id}>{option.name}</option>
+                ))}
+              </select>
+              ) : field.textarea ? (
               <textarea
                 name={field.name}
                 value={form[field.name]}
@@ -415,6 +457,7 @@ function UserEditModal({ user, token, onClose, onSaved }) {
             Tipo
             <select name="role" value={form.role} onChange={updateField} disabled={isRootUser}>
               <option value="cliente">Cliente</option>
+              <option value="motorista">Motorista</option>
               <option value="admin">Administrador</option>
             </select>
           </label>
@@ -711,6 +754,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
     () => ({
       destinations: catalog?.destinations?.length || 0,
       hotels: catalog?.hotels?.length || 0,
+      hotelRooms: catalog?.hotelRooms?.length || 0,
       restaurants: catalog?.restaurants?.length || 0,
       tours: catalog?.tours?.length || 0,
       itineraries: catalog?.itineraries?.length || 0,
@@ -904,7 +948,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
       {!token ? (
         <form className="admin-login" onSubmit={handleLogin}>
           <label>
-            Usuário (Nome de utilizador ou email)
+            Usuário
             <input
               name="username"
               value={credentials.username}
@@ -971,6 +1015,13 @@ export function AdminPanel({ catalog, onContentChanged }) {
               <strong>{Object.values(catalogCounts).reduce((sum, total) => sum + total, 0)}</strong>
             </div>
           </div>
+
+          <DriverAdminPanel
+            token={token}
+            users={users}
+            reservations={reservations}
+            onReservationsChanged={loadReservations}
+          />
 
           <section className="admin-reservations-panel">
             <div className="admin-section-title">
@@ -1083,6 +1134,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
                 activeResource={activeResource}
                 token={token}
                 selectedItem={selectedItem}
+                catalog={catalog}
                 onCancelEdit={() => setSelectedItem(null)}
                 onSaved={handleContentSaved}
               />
@@ -1097,7 +1149,9 @@ export function AdminPanel({ catalog, onContentChanged }) {
                       key={item.id}
                       className={selectedItem?.id === item.id ? 'is-selected' : ''}
                     >
-                      {item.image && <img className="admin-item-thumb" src={item.image} alt="" />}
+                      {(item.image || item.images?.[0]) && (
+                        <img className="admin-item-thumb" src={item.image || item.images[0]} alt="" />
+                      )}
                       <div>
                         <strong>{item.name}</strong>
                         <span>
@@ -1106,6 +1160,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
                             item.type ||
                             item.mood ||
                             item.location ||
+                            (item.hotelId ? `Hotel #${item.hotelId}` : '') ||
                             'Conteúdo'}
                         </span>
                       </div>
@@ -1150,7 +1205,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
                     <strong>{user.name}</strong>
                     <span>@{user.username} · {user.email || 'sem email'}</span>
                   </div>
-                  <span className={user.role === 'admin' ? 'status-pill status-pill--admin' : 'status-pill'}>
+                  <span className={`status-pill status-pill--${user.role}`}>
                     {user.role}
                   </span>
                   <div className="admin-item-actions">

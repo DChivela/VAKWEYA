@@ -102,6 +102,75 @@ export const hotels = [
   }
 ];
 
+export const hotelRooms = [
+  {
+    id: 1,
+    hotelId: 1,
+    name: 'Quarto Serra',
+    description: 'Quarto luminoso com varanda, cama queen e vista para as montanhas do Lubango.',
+    price: 52000,
+    capacity: 2,
+    stock: 4,
+    amenities: ['Cama queen', 'Varanda', 'Wi-Fi', 'Pequeno-almoço'],
+    images: [assets.lodge, assets.hero, assets.waterfall]
+  },
+  {
+    id: 2,
+    hotelId: 1,
+    name: 'Suite Miradouro',
+    description: 'Suite ampla para pequenos grupos, com sala, duas camas e transfer incluído.',
+    price: 88000,
+    capacity: 4,
+    stock: 2,
+    amenities: ['Sala privada', 'Duas camas', 'Transfer', 'Vista panorâmica'],
+    images: [assets.hero, assets.lodge]
+  },
+  {
+    id: 3,
+    hotelId: 2,
+    name: 'Duna Standard',
+    description: 'Base confortável para regressar das dunas, com ar condicionado e duche amplo.',
+    price: 61000,
+    capacity: 2,
+    stock: 5,
+    amenities: ['Ar condicionado', 'Duche', 'Wi-Fi', 'Estacionamento'],
+    images: [assets.namibe, assets.lodge]
+  },
+  {
+    id: 4,
+    hotelId: 2,
+    name: 'Family Desert',
+    description: 'Quarto familiar com camas flexíveis e espaço para equipamento de aventura.',
+    price: 96000,
+    capacity: 5,
+    stock: 2,
+    amenities: ['Camas flexíveis', 'Mini-frigorífico', 'Pequeno-almoço', 'Guia local'],
+    images: [assets.namibe, assets.hero]
+  },
+  {
+    id: 5,
+    hotelId: 3,
+    name: 'Baía Twin',
+    description: 'Duas camas, ambiente jovem e acesso rápido à piscina e à praia.',
+    price: 47000,
+    capacity: 2,
+    stock: 6,
+    amenities: ['Duas camas', 'Piscina', 'Cowork', 'Ar condicionado'],
+    images: [assets.lodge, assets.namibe]
+  },
+  {
+    id: 6,
+    hotelId: 3,
+    name: 'Social Group',
+    description: 'Quarto pensado para grupos, com quatro camas e zona de convívio.',
+    price: 82000,
+    capacity: 4,
+    stock: 3,
+    amenities: ['Quatro camas', 'Zona de convívio', 'Bar', 'Pequeno-almoço'],
+    images: [assets.waterfall, assets.lodge]
+  }
+];
+
 export const restaurants = [
   {
     id: 1,
@@ -237,7 +306,11 @@ export const stats = [
 
 export const catalog = {
   destinations,
-  hotels,
+  hotels: hotels.map((hotel) => ({
+    ...hotel,
+    rooms: hotelRooms.filter((room) => room.hotelId === hotel.id)
+  })),
+  hotelRooms,
   restaurants,
   tours,
   itineraries,

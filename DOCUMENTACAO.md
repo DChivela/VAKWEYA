@@ -276,7 +276,15 @@ Lista hoteis com:
 - Destino
 - Preco por noite
 - Comodidades
-- Botao `Reservar quarto`
+- Botao `Ver quartos`
+
+Ao clicar na imagem ou no botao do hotel, abre a selecao dedicada de quartos em:
+
+```text
+/hoteis?hotel=ID
+```
+
+Cada quarto apresenta galeria, descricao, comodidades, capacidade, stock, preco por noite e seletor de quantidade.
 
 ### 6.4 Restaurantes
 
@@ -296,6 +304,8 @@ Lista tours com:
 - Duracao
 - Preco
 - Botao `Reservar tour`
+
+A pagina tambem possui um planeador com Leaflet/OpenStreetMap. O cliente pode usar a localizacao atual, marcar destinos, agendar ou pedir uma tour imediata e consultar motoristas disponiveis.
 
 ### 6.6 Roteiros
 
@@ -353,8 +363,12 @@ preco medio x pessoas
 Tour:
 
 ```text
-preco x pessoas
+100.000 Kz para ate 3 paragens + 25.000 Kz por paragem adicional
 ```
+
+Para tours prontas do catalogo, continua disponivel o calculo por preco e numero de pessoas.
+
+Os valores da tour personalizada podem ser alterados no `.env` com `TOUR_BASE_PRICE`, `TOUR_INCLUDED_STOPS` e `TOUR_EXTRA_STOP_PRICE`.
 
 Destino:
 
@@ -379,6 +393,8 @@ Na pagina `/conta`, o utilizador autenticado consegue consultar:
 - Estado da reserva.
 - Datas, numero de pessoas e orcamento.
 - Observacoes enviadas no formulario.
+- Quarto e quantidade escolhidos, quando for hotel.
+- Rota, horario e motorista atribuido, quando for tour personalizada.
 
 Isto permite que o cliente acompanhe o proprio historico sem acesso ao painel administrativo.
 
@@ -435,11 +451,14 @@ Ficheiro: `src/components/InteractiveMap.jsx`
 
 Funcionalidades:
 
-- Mostra o contorno real de Angola, incluindo Cabinda.
+- Usa Leaflet com cartografia real do OpenStreetMap.
+- Mostra a localizacao atual com permissao do navegador.
 - Renderiza pontos conforme coordenadas dos destinos.
-- Mostra etiquetas de provincias a partir dos destinos carregados.
-- Destinos criados no admin tambem aparecem no mapa se tiverem provincia e coordenadas.
-- Botao de reserva contextual para o destino selecionado.
+- Destinos criados no admin aparecem automaticamente quando possuem coordenadas.
+- Permite criar uma rota clicando nos destinos ou diretamente no mapa.
+- Desenha a sequencia da tour e recalcula o preco imediatamente.
+- Atualiza motoristas disponiveis a cada 30 segundos.
+- Mantem a atribuicao final do motorista sob controlo administrativo.
 
 ## 10. Painel Administrativo
 
@@ -510,12 +529,15 @@ Permite criar, editar e eliminar:
 
 - Destinos
 - Hoteis
+- Quartos
 - Restaurantes
 - Tours
 - Roteiros
 - Depoimentos
 
 Campos de imagem usam seletor de ficheiro.
+
+Quartos e veiculos aceitam varias imagens na mesma galeria.
 
 ### 10.6 Edicao de Conteudos
 
@@ -534,6 +556,17 @@ O sistema usa eliminacao logica para conteudos na base de dados:
 - `active = 0`
 
 Assim o item deixa de aparecer no site publico sem apagar fisicamente a linha.
+
+### 10.8 Motoristas e Frota
+
+O painel possui uma area separada para:
+
+- Completar o perfil de utilizadores com role `motorista`.
+- Aprovar ou suspender o motorista.
+- Definir carta de conducao e disponibilidade.
+- Guardar localizacao operacional.
+- Associar marca, modelo, ano, matricula, capacidade, tipo e imagens do veiculo.
+- Consultar tours pendentes e atribuir o motorista aprovado.
 
 ## 11. Gestao de Utilizadores
 
@@ -612,6 +645,9 @@ Tabelas principais:
 - `users`
 - `destinations`
 - `hotels`
+- `hotel_rooms`
+- `driver_profiles`
+- `vehicles`
 - `restaurants`
 - `tours`
 - `itineraries`
@@ -637,6 +673,7 @@ Roles:
 
 - `admin`
 - `cliente`
+- `motorista`
 
 ### 13.2 reservations
 
@@ -650,8 +687,13 @@ Guarda:
 - Pessoas
 - Datas
 - Orcamento
+- Preco calculado
 - Notas
 - Estado
+- Data/hora da tour e indicador de pedido imediato
+- Paragens da tour em JSON
+- Motorista atribuido
+- Quarto e quantidade reservada
 
 ### 13.3 assistant_faqs
 
@@ -684,6 +726,9 @@ POST /api/uploads
 POST /api/auth/register
 POST /api/auth/login
 GET /api/auth/me
+GET /api/drivers/available
+GET /api/driver/dashboard
+PATCH /api/driver/availability
 GET /api/assistant/suggestions
 POST /api/assistant/chat
 POST /api/reservations
@@ -701,6 +746,9 @@ GET /api/admin/users
 PUT /api/admin/users/:id
 PATCH /api/admin/users/:id/role
 DELETE /api/admin/users/:id
+GET /api/admin/drivers
+PUT /api/admin/drivers/:userId
+PATCH /api/admin/reservations/:id/assign-driver
 GET /api/admin/assistant/faqs
 POST /api/admin/assistant/faqs
 PUT /api/admin/assistant/faqs/:id
@@ -886,13 +934,14 @@ Resolucao:
 
 ### 18.3 esbuild bloqueado pelo pnpm
 
-Resolucao:
+O projeto ja possui a aprovacao declarativa em `pnpm-workspace.yaml`:
 
-```powershell
-pnpm approve-builds
+```yaml
+allowBuilds:
+  esbuild: true
 ```
 
-Depois selecione `esbuild`.
+Depois de atualizar o repositorio, execute `pnpm install --frozen-lockfile`.
 
 ### 18.4 Alteracoes nao aparecem
 
@@ -918,8 +967,7 @@ Ideias naturais para as proximas fases:
 - Confirmacao de email.
 - Dashboard do cliente.
 - Estados editaveis para reservas.
-- Upload multiplo de imagens por estabelecimento.
-- Galeria por hotel/restaurante/tour.
+- Galeria adicional para restaurantes e tours.
 - Paginacao no painel admin.
 - Filtros por provincia, preco e tipo.
 - Permissoes mais granulares, como editor, operador e administrador.
@@ -933,7 +981,17 @@ O projeto ja possui:
 - Rotas separadas.
 - Catalogo de destinos, hoteis, restaurantes, tours e roteiros.
 - Mapa interativo de Angola.
+- Mapa real com Leaflet e OpenStreetMap.
+- Geolocalizacao do utilizador.
+- Planeador de tours com ate oito paragens.
+- Preco base de 100.000 Kz e acrescimo por destino extra.
+- Consulta periodica de motoristas disponiveis.
+- Perfil de motorista e veiculo associado.
+- Aprovacao e atribuicao administrativa de tours.
+- Historico de tours no perfil do motorista.
 - Reservas contextuais.
+- Selecao de tipos e quantidades de quartos por hotel.
+- Galeria multipla para quartos e veiculos.
 - Historico de reservas por cliente.
 - Consulta administrativa de todas as reservas.
 - Orcamento automatico.

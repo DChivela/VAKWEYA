@@ -1,41 +1,126 @@
-import { Crosshair, Navigation } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { angolaMap, projectAngolaPoint } from '../data/angolaMap';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { Crosshair, LocateFixed, Navigation } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { reservationLink } from '../services/reservationLinks';
 import { SectionHeader } from './SectionHeader';
 
+const angolaCenter = [-12.5, 17.5];
+
 export function InteractiveMap({ destinations }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const destinationLayerRef = useRef(null);
+  const locationLayerRef = useRef(null);
   const [activeSlug, setActiveSlug] = useState(destinations[0]?.slug);
+  const [locationStatus, setLocationStatus] = useState('idle');
 
   const activeDestination = useMemo(
     () => destinations.find((destination) => destination.slug === activeSlug) || destinations[0],
     [activeSlug, destinations]
   );
 
-  const provinceLabels = useMemo(() => {
-    const labels = new Map();
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) {
+      return undefined;
+    }
 
+    const map = L.map(containerRef.current, {
+      zoomControl: false,
+      minZoom: 5
+    }).setView(angolaCenter, 6);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    destinationLayerRef.current = L.layerGroup().addTo(map);
+    locationLayerRef.current = L.layerGroup().addTo(map);
+    mapRef.current = map;
+
+    window.setTimeout(() => map.invalidateSize(), 0);
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const layer = destinationLayerRef.current;
+
+    if (!map || !layer) {
+      return;
+    }
+
+    layer.clearLayers();
     destinations.forEach((destination) => {
-      if (!destination.province || labels.has(destination.province)) {
-        return;
-      }
-
-      const point = projectAngolaPoint(destination.coordinates);
-      labels.set(destination.province, {
-        ...destination,
-        labelLeft: `${12 + (point.x / angolaMap.width) * 76}%`,
-        labelTop: `${6 + (point.y / angolaMap.height) * 88}%`
-      });
+      const isActive = destination.slug === activeSlug;
+      const marker = L.circleMarker(
+        [destination.coordinates.lat, destination.coordinates.lng],
+        {
+          radius: isActive ? 11 : 8,
+          color: '#ffffff',
+          weight: 3,
+          fillColor: isActive ? '#f2b705' : '#1677ff',
+          fillOpacity: 1
+        }
+      )
+        .bindTooltip(`${destination.name} · ${destination.province}`, {
+          direction: 'top',
+          offset: [0, -8]
+        })
+        .on('click', () => {
+          setActiveSlug(destination.slug);
+          map.flyTo([destination.coordinates.lat, destination.coordinates.lng], 9, {
+            duration: 0.8
+          });
+        });
+      marker.addTo(layer);
     });
-
-    return [...labels.values()];
-  }, [destinations]);
+  }, [activeSlug, destinations]);
 
   useEffect(() => {
     if (!destinations.some((destination) => destination.slug === activeSlug)) {
       setActiveSlug(destinations[0]?.slug);
     }
   }, [activeSlug, destinations]);
+
+  function locateUser() {
+    if (!navigator.geolocation) {
+      setLocationStatus('unsupported');
+      return;
+    }
+
+    setLocationStatus('loading');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const map = mapRef.current;
+        const layer = locationLayerRef.current;
+
+        if (!map || !layer) {
+          return;
+        }
+
+        layer.clearLayers();
+        L.circleMarker([coords.latitude, coords.longitude], {
+          radius: 9,
+          color: '#ffffff',
+          weight: 3,
+          fillColor: '#16a34a',
+          fillOpacity: 1
+        })
+          .bindTooltip('A tua localização', { permanent: true, direction: 'top' })
+          .addTo(layer);
+        map.flyTo([coords.latitude, coords.longitude], 12, { duration: 0.8 });
+        setLocationStatus('success');
+      },
+      () => setLocationStatus('denied'),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  }
 
   if (!activeDestination) {
     return null;
@@ -44,69 +129,18 @@ export function InteractiveMap({ destinations }) {
   return (
     <section className="section shell map-section" id="mapa">
       <SectionHeader
-        eyebrow="Mapa"
-        title="Escolhe o ponto, sente a rota"
-        text="Um mapa interativo simples para saltar entre destinos e decidir o próximo plano."
+        eyebrow="Mapa real"
+        title="Explora Angola no mapa"
+        text="Consulta os destinos publicados e usa a tua localização para perceber melhor cada rota."
       />
 
       <div className="map-layout">
-        <div className="map-canvas" aria-label="Mapa interativo de destinos em Angola">
-          <svg
-            className="map-svg"
-            viewBox={angolaMap.viewBox}
-            role="img"
-            aria-label="Contorno geográfico de Angola com Cabinda"
-          >
-            <defs>
-              <linearGradient id="angolaMapFill" x1="0" x2="1" y1="0" y2="1">
-                <stop offset="0%" stopColor="#2563eb" />
-                <stop offset="58%" stopColor="#6e4931" />
-                <stop offset="100%" stopColor="#7dd3fc" />
-              </linearGradient>
-            </defs>
-            <path className="angola-outline" d={angolaMap.path} />
-            <path className="angola-border" d={angolaMap.path} />
-            {destinations.map((destination) => {
-              const position = projectAngolaPoint(destination.coordinates);
-              const isActive = destination.slug === activeSlug;
-
-              return (
-                <g
-                  key={destination.slug}
-                  className={isActive ? 'map-pin-svg is-active' : 'map-pin-svg'}
-                  transform={`translate(${position.x} ${position.y})`}
-                  role="button"
-                  tabIndex="0"
-                  onClick={() => setActiveSlug(destination.slug)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      setActiveSlug(destination.slug);
-                    }
-                  }}
-                  aria-label={`Selecionar ${destination.name}`}
-                >
-                  <title>{destination.name}</title>
-                  <circle className="map-pin-svg__pulse" r="18" />
-                  <circle className="map-pin-svg__dot" r="9" />
-                </g>
-              );
-            })}
-          </svg>
-          {provinceLabels.map((destination) => (
-            <button
-              key={destination.province}
-              type="button"
-              className={
-                destination.slug === activeSlug ? 'map-region is-active' : 'map-region'
-              }
-              style={{ left: destination.labelLeft, top: destination.labelTop }}
-              onClick={() => setActiveSlug(destination.slug)}
-              title={destination.name}
-            >
-              {destination.province}
-            </button>
-          ))}
+        <div className="map-canvas map-canvas--leaflet">
+          <div ref={containerRef} className="leaflet-map" aria-label="Mapa interativo de Angola" />
+          <button className="map-locate-button" type="button" onClick={locateUser}>
+            <LocateFixed size={18} />
+            {locationStatus === 'loading' ? 'A localizar...' : 'Minha localização'}
+          </button>
         </div>
 
         <article className="map-details">
@@ -124,9 +158,7 @@ export function InteractiveMap({ destinations }) {
             </div>
             <div>
               <dt>Coordenadas</dt>
-              <dd>
-                {activeDestination.coordinates.lat}, {activeDestination.coordinates.lng}
-              </dd>
+              <dd>{activeDestination.coordinates.lat}, {activeDestination.coordinates.lng}</dd>
             </div>
           </dl>
           <div className="tag-row">
@@ -139,9 +171,9 @@ export function InteractiveMap({ destinations }) {
               <Navigation size={18} />
               Reservar rota
             </a>
-            <a className="button button--soft" href="/hoteis">
+            <a className="button button--soft" href="/tours">
               <Crosshair size={18} />
-              Ver serviços
+              Montar tour
             </a>
           </div>
         </article>

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'vakwetu-weya-pwa-v1';
+const CACHE_VERSION = 'vakwetu-weya-pwa-v2';
 const APP_SHELL = [
   '/',
   '/index.html',

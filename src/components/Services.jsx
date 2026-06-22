@@ -41,8 +41,8 @@ export function Services({ hotels, restaurants, tours }) {
       subtitle: item.destination,
       text: item.description,
       tags: item.amenities.slice(0, 3),
-      action: 'Reservar quarto',
-      actionHref: reservationLink('hotel', item)
+      action: 'Ver quartos',
+      actionHref: `/hoteis?hotel=${item.id}`
     }));
   }, [active, hotels, restaurants, tours]);
 

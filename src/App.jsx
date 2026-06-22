@@ -98,7 +98,7 @@ export default function App() {
       case '/destinos':
         return <DestinationsPage data={data} />;
       case '/hoteis':
-        return <HotelsPage data={data} />;
+        return <HotelsPage data={data} currentSearch={currentSearch} />;
       case '/restaurantes':
         return <RestaurantsPage data={data} />;
       case '/tours':

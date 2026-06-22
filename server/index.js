@@ -14,14 +14,23 @@ dotenv.config();
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
-const dbName = process.env.DB_NAME || 'WEYA';
+const dbHost = process.env.DB_HOST || process.env.MYSQLHOST || '127.0.0.1';
+const dbPort = Number(process.env.DB_PORT || process.env.MYSQLPORT || 3306);
+const dbUser = process.env.DB_USER || process.env.MYSQLUSER || 'root';
+const dbPassword = process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '';
+const dbName = process.env.DB_NAME || process.env.MYSQLDATABASE || 'WEYA';
 const adminUsername = process.env.ADMIN_USERNAME || 'dchivela';
 const adminPassword = process.env.ADMIN_PASSWORD || '#focus2024';
 const sessions = new Map();
 const demoUsers = [];
 const demoReservations = [];
 const demoContacts = [];
+const demoDriverProfiles = [];
+const demoVehicles = [];
 const demoCatalog = structuredClone(catalog);
+const tourBasePrice = Number(process.env.TOUR_BASE_PRICE || 100000);
+const tourIncludedStops = Number(process.env.TOUR_INCLUDED_STOPS || 3);
+const tourExtraStopPrice = Number(process.env.TOUR_EXTRA_STOP_PRICE || 25000);
 const defaultAssistantFaqs = [
   {
     category: 'Reservas',
@@ -84,6 +93,8 @@ const demoAssistantLogs = [];
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(serverDir, '..');
 const uploadRoot = path.resolve(process.env.UPLOAD_DIR || path.join(projectRoot, 'public', 'uploads'));
+const distRoot = path.join(projectRoot, 'dist');
+const indexFile = path.join(distRoot, 'index.html');
 
 let pool = null;
 
@@ -264,6 +275,68 @@ function splitList(value) {
     .filter(Boolean);
 }
 
+function normalizeRole(value) {
+  return ['admin', 'motorista'].includes(value) ? value : 'cliente';
+}
+
+function calculateTourPrice(stops) {
+  const stopCount = Array.isArray(stops) ? stops.length : 0;
+  return tourBasePrice + Math.max(0, stopCount - tourIncludedStops) * tourExtraStopPrice;
+}
+
+function normalizeTourStops(value) {
+  const stops = Array.isArray(value) ? value : parseJson(value, []);
+
+  return stops
+    .slice(0, 8)
+    .map((stop, index) => ({
+      id: stop.id || `stop-${index + 1}`,
+      name: String(stop.name || `Paragem ${index + 1}`).trim(),
+      province: String(stop.province || '').trim(),
+      lat: Number(stop.lat ?? stop.coordinates?.lat),
+      lng: Number(stop.lng ?? stop.coordinates?.lng)
+    }))
+    .filter((stop) => Number.isFinite(stop.lat) && Number.isFinite(stop.lng));
+}
+
+function toPublicDriver(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: Number(row.user_id ?? row.userId ?? row.id),
+    name: row.name,
+    username: row.username,
+    phone: row.phone || null,
+    avatar: row.avatar || null,
+    bio: row.bio || '',
+    licenseNumber: row.license_number ?? row.licenseNumber ?? '',
+    availability: row.availability || 'offline',
+    approved: Boolean(row.approved),
+    location: {
+      lat: row.current_latitude === null || row.current_latitude === undefined
+        ? null
+        : Number(row.current_latitude),
+      lng: row.current_longitude === null || row.current_longitude === undefined
+        ? null
+        : Number(row.current_longitude)
+    },
+    vehicle: row.vehicle_id || row.vehicleId
+      ? {
+          id: Number(row.vehicle_id ?? row.vehicleId),
+          make: row.vehicle_make ?? row.make ?? '',
+          model: row.vehicle_model ?? row.model ?? '',
+          year: Number(row.vehicle_year ?? row.year ?? 0) || null,
+          licensePlate: row.license_plate ?? row.licensePlate ?? '',
+          capacity: Number(row.vehicle_capacity ?? row.capacity ?? 1),
+          type: row.vehicle_type ?? row.type ?? '',
+          images: parseJson(row.vehicle_images_json ?? row.images, [])
+        }
+      : null
+  };
+}
+
 function normalizeAssistantText(value) {
   return String(value || '')
     .normalize('NFD')
@@ -422,6 +495,19 @@ function normalizeResourcePayload(resource, payload) {
         description: payload.description,
         amenities: splitList(payload.amenities)
       };
+    case 'hotelRooms':
+      ensureRequired(payload, ['hotelId', 'name', 'description']);
+      return {
+        id: Date.now(),
+        hotelId: Number(payload.hotelId),
+        name: payload.name,
+        description: payload.description,
+        price: Number(payload.price || 0),
+        capacity: Math.max(1, Number(payload.capacity || 2)),
+        stock: Math.max(1, Number(payload.stock || 1)),
+        amenities: splitList(payload.amenities),
+        images: splitList(payload.images)
+      };
     case 'restaurants':
       ensureRequired(payload, ['name', 'destination', 'description']);
       return {
@@ -472,6 +558,9 @@ function normalizeResourcePayload(resource, payload) {
 }
 
 function toPublicReservation(row) {
+  const tourStops = normalizeTourStops(row.tour_stops_json ?? row.tourStops ?? []);
+  const calculatedPrice = row.calculated_price ?? row.calculatedPrice;
+
   return {
     id: row.id,
     userId: row.user_id ?? row.userId ?? null,
@@ -484,8 +573,35 @@ function toPublicReservation(row) {
     startDate: row.start_date ?? row.startDate ?? null,
     endDate: row.end_date ?? row.endDate ?? null,
     budget: row.budget === null || row.budget === undefined ? null : Number(row.budget),
+    calculatedPrice:
+      calculatedPrice === null || calculatedPrice === undefined ? null : Number(calculatedPrice),
     notes: row.notes || null,
     status: row.status || 'pendente',
+    scheduledAt: row.scheduled_at ?? row.scheduledAt ?? null,
+    isImmediate: Boolean(row.is_immediate ?? row.isImmediate),
+    tourStops,
+    hotelRoomId: row.hotel_room_id ?? row.hotelRoomId ?? null,
+    hotelRoomName: row.hotel_room_name ?? row.hotelRoomName ?? null,
+    roomQuantity: Number(row.room_quantity ?? row.roomQuantity ?? 0) || null,
+    assignedDriverId: row.assigned_driver_id ?? row.assignedDriverId ?? null,
+    driver: row.driver_name
+      ? {
+          id: Number(row.assigned_driver_id),
+          name: row.driver_name,
+          phone: row.driver_phone || null,
+          avatar: row.driver_avatar || null,
+          vehicle: row.vehicle_id
+            ? {
+                id: Number(row.vehicle_id),
+                make: row.vehicle_make || '',
+                model: row.vehicle_model || '',
+                licensePlate: row.license_plate || '',
+                capacity: Number(row.vehicle_capacity || 1),
+                type: row.vehicle_type || ''
+              }
+            : null
+        }
+      : null,
     createdAt: row.created_at ?? row.createdAt ?? null,
     updatedAt: row.updated_at ?? row.updatedAt ?? null
   };
@@ -512,6 +628,19 @@ async function insertResource(resource, item) {
         `INSERT INTO hotels (name, destination, description, image, price_per_night, rating, amenities_json)
          VALUES (:name, :destination, :description, :image, :price, :rating, :amenities)`,
         { ...item, amenities: JSON.stringify(item.amenities) }
+      );
+      return { ...item, id: result.insertId };
+    }
+    case 'hotelRooms': {
+      const [result] = await pool.query(
+        `INSERT INTO hotel_rooms
+         (hotel_id, name, description, price_per_night, capacity, stock, amenities_json, images_json)
+         VALUES (:hotelId, :name, :description, :price, :capacity, :stock, :amenities, :images)`,
+        {
+          ...item,
+          amenities: JSON.stringify(item.amenities),
+          images: JSON.stringify(item.images)
+        }
       );
       return { ...item, id: result.insertId };
     }
@@ -597,6 +726,26 @@ async function updateResource(resource, id, item) {
         { ...item, amenities: JSON.stringify(item.amenities), resourceId: id }
       );
       return { ...item, id };
+    case 'hotelRooms':
+      await pool.query(
+        `UPDATE hotel_rooms SET
+          hotel_id = :hotelId,
+          name = :name,
+          description = :description,
+          price_per_night = :price,
+          capacity = :capacity,
+          stock = :stock,
+          amenities_json = :amenities,
+          images_json = :images
+         WHERE id = :resourceId`,
+        {
+          ...item,
+          amenities: JSON.stringify(item.amenities),
+          images: JSON.stringify(item.images),
+          resourceId: id
+        }
+      );
+      return { ...item, id };
     case 'restaurants':
       await pool.query(
         `UPDATE restaurants SET
@@ -663,6 +812,7 @@ async function deleteResource(resource, id) {
   const tables = {
     destinations: 'destinations',
     hotels: 'hotels',
+    hotelRooms: 'hotel_rooms',
     restaurants: 'restaurants',
     tours: 'tours',
     itineraries: 'itineraries',
@@ -680,22 +830,29 @@ async function deleteResource(resource, id) {
 async function connectDatabase() {
   try {
     const rootConnection = await mysql.createConnection({
-      host: process.env.DB_HOST || '127.0.0.1',
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || ''
+      host: dbHost,
+      port: dbPort,
+      user: dbUser,
+      password: dbPassword
     });
 
-    await rootConnection.query(
-      `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-    );
-    await rootConnection.end();
+    try {
+      await rootConnection.query(
+        `CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+      );
+    } catch (error) {
+      if (error.code !== 'ER_DBACCESS_DENIED_ERROR') {
+        throw error;
+      }
+    } finally {
+      await rootConnection.end();
+    }
 
     pool = mysql.createPool({
-      host: process.env.DB_HOST || '127.0.0.1',
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || '',
+      host: dbHost,
+      port: dbPort,
+      user: dbUser,
+      password: dbPassword,
       database: dbName,
       waitForConnections: true,
       connectionLimit: 10,
@@ -704,6 +861,7 @@ async function connectDatabase() {
 
     await initializeSchema();
     await seedBaseContent();
+    await seedHotelRooms();
     await seedAssistantFaqs();
     console.log(`MySQL ligado em ${dbName}.`);
   } catch (error) {
@@ -722,7 +880,7 @@ async function initializeSchema() {
       phone VARCHAR(40) NULL,
       avatar VARCHAR(255) NULL,
       password_hash VARCHAR(255) NOT NULL,
-      role ENUM('admin','cliente') NOT NULL DEFAULT 'cliente',
+      role ENUM('admin','cliente','motorista') NOT NULL DEFAULT 'cliente',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -763,6 +921,55 @@ async function initializeSchema() {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS hotel_rooms (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      hotel_id BIGINT UNSIGNED NOT NULL,
+      name VARCHAR(180) NOT NULL,
+      description TEXT NULL,
+      price_per_night DECIMAL(12,2) NOT NULL DEFAULT 0,
+      capacity INT NOT NULL DEFAULT 2,
+      stock INT NOT NULL DEFAULT 1,
+      amenities_json JSON NULL,
+      images_json JSON NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY hotel_rooms_hotel_index (hotel_id),
+      KEY hotel_rooms_active_index (active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS driver_profiles (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id BIGINT UNSIGNED NOT NULL,
+      bio TEXT NULL,
+      license_number VARCHAR(100) NULL,
+      availability ENUM('offline','livre','ocupado') NOT NULL DEFAULT 'offline',
+      approved TINYINT(1) NOT NULL DEFAULT 0,
+      current_latitude DECIMAL(10,6) NULL,
+      current_longitude DECIMAL(10,6) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY driver_profiles_user_unique (user_id),
+      KEY driver_profiles_availability_index (availability, approved)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    `CREATE TABLE IF NOT EXISTS vehicles (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      driver_id BIGINT UNSIGNED NOT NULL,
+      make VARCHAR(100) NOT NULL,
+      model VARCHAR(120) NOT NULL,
+      vehicle_year INT NULL,
+      license_plate VARCHAR(40) NOT NULL,
+      capacity INT NOT NULL DEFAULT 4,
+      vehicle_type VARCHAR(100) NULL,
+      images_json JSON NULL,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY vehicles_driver_unique (driver_id),
+      UNIQUE KEY vehicles_plate_unique (license_plate)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS restaurants (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -817,14 +1024,23 @@ async function initializeSchema() {
       start_date DATE NULL,
       end_date DATE NULL,
       budget DECIMAL(12,2) NULL,
+      calculated_price DECIMAL(12,2) NULL,
       notes TEXT NULL,
+      scheduled_at DATETIME NULL,
+      is_immediate TINYINT(1) NOT NULL DEFAULT 0,
+      tour_stops_json JSON NULL,
+      assigned_driver_id BIGINT UNSIGNED NULL,
+      hotel_room_id BIGINT UNSIGNED NULL,
+      room_quantity INT NULL,
       status ENUM('pendente','confirmada','cancelada','concluida') NOT NULL DEFAULT 'pendente',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY reservations_user_index (user_id),
       KEY reservations_status_index (status),
-      KEY reservations_email_index (customer_email)
+      KEY reservations_email_index (customer_email),
+      KEY reservations_driver_index (assigned_driver_id),
+      KEY reservations_schedule_index (scheduled_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     `CREATE TABLE IF NOT EXISTS contacts (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -877,6 +1093,10 @@ async function initializeSchema() {
     await pool.query(statement);
   }
 
+  await pool.query(
+    "ALTER TABLE users MODIFY COLUMN role ENUM('admin','cliente','motorista') NOT NULL DEFAULT 'cliente'"
+  );
+
   try {
     await pool.query('ALTER TABLE users ADD COLUMN avatar VARCHAR(255) NULL AFTER phone');
   } catch (error) {
@@ -898,6 +1118,41 @@ async function initializeSchema() {
   } catch (error) {
     if (error.code !== 'ER_DUP_KEYNAME') {
       throw error;
+    }
+  }
+
+  const reservationMigrations = [
+    'ALTER TABLE reservations ADD COLUMN calculated_price DECIMAL(12,2) NULL AFTER budget',
+    'ALTER TABLE reservations ADD COLUMN scheduled_at DATETIME NULL AFTER notes',
+    'ALTER TABLE reservations ADD COLUMN is_immediate TINYINT(1) NOT NULL DEFAULT 0 AFTER scheduled_at',
+    'ALTER TABLE reservations ADD COLUMN tour_stops_json JSON NULL AFTER is_immediate',
+    'ALTER TABLE reservations ADD COLUMN assigned_driver_id BIGINT UNSIGNED NULL AFTER tour_stops_json',
+    'ALTER TABLE reservations ADD COLUMN hotel_room_id BIGINT UNSIGNED NULL AFTER assigned_driver_id',
+    'ALTER TABLE reservations ADD COLUMN room_quantity INT NULL AFTER hotel_room_id'
+  ];
+
+  for (const statement of reservationMigrations) {
+    try {
+      await pool.query(statement);
+    } catch (error) {
+      if (error.code !== 'ER_DUP_FIELDNAME') {
+        throw error;
+      }
+    }
+  }
+
+  const reservationIndexes = [
+    'ALTER TABLE reservations ADD KEY reservations_driver_index (assigned_driver_id)',
+    'ALTER TABLE reservations ADD KEY reservations_schedule_index (scheduled_at)'
+  ];
+
+  for (const statement of reservationIndexes) {
+    try {
+      await pool.query(statement);
+    } catch (error) {
+      if (error.code !== 'ER_DUP_KEYNAME') {
+        throw error;
+      }
     }
   }
 
@@ -979,6 +1234,41 @@ async function seedBaseContent() {
   }
 }
 
+async function seedHotelRooms() {
+  if (!Array.isArray(catalog.hotelRooms) || catalog.hotelRooms.length === 0) {
+    return;
+  }
+
+  const [[roomCount]] = await pool.query('SELECT COUNT(*) AS total FROM hotel_rooms');
+
+  if (roomCount.total > 0) {
+    return;
+  }
+
+  const [hotelRows] = await pool.query('SELECT id, name FROM hotels WHERE active = 1');
+
+  for (const room of catalog.hotelRooms) {
+    const localHotel = catalog.hotels.find((hotel) => Number(hotel.id) === Number(room.hotelId));
+    const databaseHotel = hotelRows.find((hotel) => hotel.name === localHotel?.name);
+
+    if (!databaseHotel) {
+      continue;
+    }
+
+    await pool.query(
+      `INSERT INTO hotel_rooms
+       (hotel_id, name, description, price_per_night, capacity, stock, amenities_json, images_json)
+       VALUES (:hotelId, :name, :description, :price, :capacity, :stock, :amenities, :images)`,
+      {
+        ...room,
+        hotelId: databaseHotel.id,
+        amenities: JSON.stringify(room.amenities || []),
+        images: JSON.stringify(room.images || [])
+      }
+    );
+  }
+}
+
 async function seedAssistantFaqs() {
   const [[faqCount]] = await pool.query('SELECT COUNT(*) AS total FROM assistant_faqs');
 
@@ -1001,10 +1291,23 @@ async function seedAssistantFaqs() {
 async function readCatalogFromDb() {
   const [destinationRows] = await pool.query('SELECT * FROM destinations WHERE active = 1 ORDER BY featured DESC, id ASC');
   const [hotelRows] = await pool.query('SELECT * FROM hotels WHERE active = 1 ORDER BY rating DESC, id ASC');
+  const [roomRows] = await pool.query('SELECT * FROM hotel_rooms WHERE active = 1 ORDER BY hotel_id ASC, price_per_night ASC, id ASC');
   const [restaurantRows] = await pool.query('SELECT * FROM restaurants WHERE active = 1 ORDER BY rating DESC, id ASC');
   const [tourRows] = await pool.query('SELECT * FROM tours WHERE active = 1 ORDER BY rating DESC, id ASC');
   const [itineraryRows] = await pool.query('SELECT * FROM itineraries WHERE active = 1 ORDER BY days ASC, id ASC');
   const [testimonialRows] = await pool.query('SELECT * FROM testimonials WHERE active = 1 ORDER BY id ASC');
+
+  const hotelRooms = roomRows.map((item) => ({
+    id: item.id,
+    hotelId: item.hotel_id,
+    name: item.name,
+    description: item.description,
+    price: normalizeNumber(item.price_per_night),
+    capacity: Number(item.capacity || 1),
+    stock: Number(item.stock || 1),
+    amenities: parseJson(item.amenities_json),
+    images: parseJson(item.images_json)
+  }));
 
   return {
     destinations: destinationRows.map((item) => ({
@@ -1029,8 +1332,10 @@ async function readCatalogFromDb() {
       rating: normalizeNumber(item.rating),
       image: item.image,
       description: item.description,
-      amenities: parseJson(item.amenities_json)
+      amenities: parseJson(item.amenities_json),
+      rooms: hotelRooms.filter((room) => Number(room.hotelId) === Number(item.id))
     })),
+    hotelRooms,
     restaurants: restaurantRows.map((item) => ({
       id: item.id,
       name: item.name,
@@ -1086,6 +1391,16 @@ function requireAdmin(request, response, next) {
 
   request.admin = session;
   return next();
+}
+
+function requireDriver(request, response, next) {
+  return requireAuth(request, response, () => {
+    if (request.user.role !== 'motorista') {
+      return response.status(403).json({ message: 'Apenas motoristas podem aceder a esta area.' });
+    }
+
+    return next();
+  });
 }
 
 function validateUserPayload(payload, { requirePassword = true } = {}) {
@@ -1326,6 +1641,156 @@ app.get('/api/auth/me', requireAuth, (request, response) => {
   return response.json({ user: sanitizeUser(request.user) });
 });
 
+app.get('/api/drivers/available', async (request, response) => {
+  const scheduledAt = request.query.scheduledAt || null;
+
+  if (!pool) {
+    const drivers = demoDriverProfiles
+      .filter((profile) => profile.approved && profile.availability === 'livre')
+      .map((profile) => {
+        const user = demoUsers.find((item) => Number(item.id) === Number(profile.user_id));
+        const vehicle = demoVehicles.find((item) => Number(item.driver_id) === Number(profile.user_id));
+        return toPublicDriver({ ...profile, ...user, ...vehicle, user_id: profile.user_id });
+      })
+      .filter(Boolean);
+
+    return response.json({
+      drivers,
+      pricing: { basePrice: tourBasePrice, includedStops: tourIncludedStops, extraStopPrice: tourExtraStopPrice },
+      source: 'demo'
+    });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT u.id AS user_id, u.username, u.name, u.phone, u.avatar,
+            dp.bio, dp.license_number, dp.availability, dp.approved,
+            dp.current_latitude, dp.current_longitude,
+            v.id AS vehicle_id, v.make AS vehicle_make, v.model AS vehicle_model,
+            v.vehicle_year, v.license_plate, v.capacity AS vehicle_capacity,
+            v.vehicle_type, v.images_json AS vehicle_images_json
+     FROM users u
+     JOIN driver_profiles dp ON dp.user_id = u.id
+     LEFT JOIN vehicles v ON v.driver_id = u.id AND v.active = 1
+     WHERE u.role = 'motorista'
+       AND dp.approved = 1
+       AND dp.availability = 'livre'
+       AND (
+         :scheduledAt IS NULL OR NOT EXISTS (
+           SELECT 1 FROM reservations r
+           WHERE r.assigned_driver_id = u.id
+             AND r.status IN ('pendente','confirmada')
+             AND r.scheduled_at IS NOT NULL
+             AND ABS(TIMESTAMPDIFF(MINUTE, r.scheduled_at, :scheduledAt)) < 360
+         )
+       )
+     ORDER BY u.name ASC`,
+    { scheduledAt }
+  );
+
+  return response.json({
+    drivers: rows.map(toPublicDriver),
+    pricing: { basePrice: tourBasePrice, includedStops: tourIncludedStops, extraStopPrice: tourExtraStopPrice },
+    source: 'mysql'
+  });
+});
+
+app.get('/api/driver/dashboard', requireDriver, async (request, response) => {
+  if (!pool) {
+    const profile = demoDriverProfiles.find((item) => Number(item.user_id) === Number(request.user.id));
+    const vehicle = demoVehicles.find((item) => Number(item.driver_id) === Number(request.user.id));
+    const tours = demoReservations
+      .filter((item) => Number(item.assigned_driver_id) === Number(request.user.id))
+      .map(toPublicReservation);
+
+    return response.json({
+      driver: toPublicDriver({ ...request.user, ...profile, ...vehicle, user_id: request.user.id }),
+      tours,
+      source: 'demo'
+    });
+  }
+
+  const [driverRows] = await pool.query(
+    `SELECT u.id AS user_id, u.username, u.name, u.phone, u.avatar,
+            dp.bio, dp.license_number, dp.availability, dp.approved,
+            dp.current_latitude, dp.current_longitude,
+            v.id AS vehicle_id, v.make AS vehicle_make, v.model AS vehicle_model,
+            v.vehicle_year, v.license_plate, v.capacity AS vehicle_capacity,
+            v.vehicle_type, v.images_json AS vehicle_images_json
+     FROM users u
+     LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+     LEFT JOIN vehicles v ON v.driver_id = u.id AND v.active = 1
+     WHERE u.id = :userId
+     LIMIT 1`,
+    { userId: request.user.id }
+  );
+  const [tourRows] = await pool.query(
+    `SELECT r.*, hr.name AS hotel_room_name
+     FROM reservations r
+     LEFT JOIN hotel_rooms hr ON hr.id = r.hotel_room_id
+     WHERE r.assigned_driver_id = :userId
+     ORDER BY COALESCE(r.scheduled_at, r.created_at) DESC
+     LIMIT 100`,
+    { userId: request.user.id }
+  );
+
+  return response.json({
+    driver: toPublicDriver(driverRows[0]),
+    tours: tourRows.map(toPublicReservation),
+    source: 'mysql'
+  });
+});
+
+app.patch('/api/driver/availability', requireDriver, async (request, response) => {
+  const availability = ['offline', 'livre', 'ocupado'].includes(request.body.availability)
+    ? request.body.availability
+    : null;
+  const latitude = request.body.latitude === null || request.body.latitude === undefined
+    ? null
+    : Number(request.body.latitude);
+  const longitude = request.body.longitude === null || request.body.longitude === undefined
+    ? null
+    : Number(request.body.longitude);
+
+  if (!availability) {
+    return response.status(422).json({ message: 'Estado de disponibilidade invalido.' });
+  }
+
+  if (!pool) {
+    let profile = demoDriverProfiles.find((item) => Number(item.user_id) === Number(request.user.id));
+
+    if (!profile) {
+      profile = { user_id: request.user.id, approved: false };
+      demoDriverProfiles.push(profile);
+    }
+
+    Object.assign(profile, {
+      availability,
+      current_latitude: Number.isFinite(latitude) ? latitude : profile.current_latitude ?? null,
+      current_longitude: Number.isFinite(longitude) ? longitude : profile.current_longitude ?? null
+    });
+
+    return response.json({ ok: true, driver: toPublicDriver({ ...request.user, ...profile }) });
+  }
+
+  await pool.query(
+    `INSERT INTO driver_profiles
+     (user_id, availability, approved, current_latitude, current_longitude)
+     VALUES (:userId, :availability, 0, :latitude, :longitude)
+     ON DUPLICATE KEY UPDATE
+       availability = VALUES(availability),
+       current_latitude = COALESCE(VALUES(current_latitude), current_latitude),
+       current_longitude = COALESCE(VALUES(current_longitude), current_longitude)`,
+    {
+      userId: request.user.id,
+      availability,
+      latitude: Number.isFinite(latitude) ? latitude : null,
+      longitude: Number.isFinite(longitude) ? longitude : null
+    }
+  );
+
+  return response.json({ ok: true, message: 'Disponibilidade atualizada.' });
+});
+
 app.post('/api/reservations', async (request, response) => {
   const payload = request.body;
   const token = request.headers.authorization?.replace('Bearer ', '');
@@ -1337,6 +1802,55 @@ app.post('/api/reservations', async (request, response) => {
 
   if (!payload.name || !payload.email || !payload.phone) {
     return response.status(422).json({ message: 'Nome, email e telefone são obrigatórios.' });
+  }
+
+  const allowedTypes = ['destino', 'hotel', 'restaurante', 'tour', 'roteiro'];
+
+  if (!allowedTypes.includes(payload.serviceType)) {
+    return response.status(422).json({ message: 'Escolha um tipo de servico valido.' });
+  }
+
+  const tourStops = payload.serviceType === 'tour' ? normalizeTourStops(payload.tourStops) : [];
+  const isImmediate = payload.serviceType === 'tour' && Boolean(payload.isImmediate);
+  const scheduledAt = payload.serviceType === 'tour'
+    ? isImmediate
+      ? new Date().toISOString().slice(0, 19).replace('T', ' ')
+      : payload.scheduledAt || null
+    : null;
+  let calculatedPrice = tourStops.length > 0 ? calculateTourPrice(tourStops) : null;
+  const hotelRoomId = payload.serviceType === 'hotel' && payload.hotelRoomId
+    ? Number(payload.hotelRoomId)
+    : null;
+  const roomQuantity = hotelRoomId ? Math.max(1, Number(payload.roomQuantity || 1)) : null;
+
+  if (pool && hotelRoomId) {
+    const [roomRows] = await pool.query(
+      `SELECT id, hotel_id, price_per_night, capacity, stock
+       FROM hotel_rooms
+       WHERE id = :roomId AND active = 1
+       LIMIT 1`,
+      { roomId: hotelRoomId }
+    );
+    const room = roomRows[0];
+
+    if (!room || (payload.serviceId && Number(room.hotel_id) !== Number(payload.serviceId))) {
+      return response.status(422).json({ message: 'O quarto selecionado nao pertence a este hotel.' });
+    }
+
+    if (roomQuantity > Number(room.stock || 1)) {
+      return response.status(422).json({ message: 'A quantidade de quartos excede a disponibilidade.' });
+    }
+
+    if (Number(payload.travelers || 1) > Number(room.capacity || 1) * roomQuantity) {
+      return response.status(422).json({ message: 'A quantidade de pessoas excede a capacidade dos quartos.' });
+    }
+
+    const start = payload.startDate ? new Date(payload.startDate) : null;
+    const end = payload.endDate ? new Date(payload.endDate) : null;
+    const nights = start && end
+      ? Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000))
+      : 1;
+    calculatedPrice = Number(room.price_per_night) * nights * roomQuantity;
   }
 
   const now = new Date().toISOString();
@@ -1351,8 +1865,15 @@ app.post('/api/reservations', async (request, response) => {
     travelers: Number(payload.travelers || 1),
     start_date: payload.startDate || null,
     end_date: payload.endDate || null,
-    budget: payload.budget || null,
+    budget: payload.budget || calculatedPrice || null,
+    calculated_price: calculatedPrice,
     notes: payload.notes || null,
+    scheduled_at: scheduledAt,
+    is_immediate: isImmediate ? 1 : 0,
+    tour_stops_json: tourStops.length > 0 ? JSON.stringify(tourStops) : null,
+    assigned_driver_id: null,
+    hotel_room_id: hotelRoomId,
+    room_quantity: roomQuantity,
     status: 'pendente',
     created_at: now,
     updated_at: now
@@ -1369,8 +1890,12 @@ app.post('/api/reservations', async (request, response) => {
 
   await pool.query(
     `INSERT INTO reservations
-     (user_id, service_type, service_id, customer_name, customer_email, customer_phone, travelers, start_date, end_date, budget, notes)
-     VALUES (:user_id, :service_type, :service_id, :customer_name, :customer_email, :customer_phone, :travelers, :start_date, :end_date, :budget, :notes)`,
+     (user_id, service_type, service_id, customer_name, customer_email, customer_phone, travelers,
+      start_date, end_date, budget, calculated_price, notes, scheduled_at, is_immediate,
+      tour_stops_json, assigned_driver_id, hotel_room_id, room_quantity)
+     VALUES (:user_id, :service_type, :service_id, :customer_name, :customer_email, :customer_phone, :travelers,
+      :start_date, :end_date, :budget, :calculated_price, :notes, :scheduled_at, :is_immediate,
+      :tour_stops_json, :assigned_driver_id, :hotel_room_id, :room_quantity)`,
     reservation
   );
 
@@ -1399,11 +1924,16 @@ app.get('/api/reservations/me', requireAuth, async (request, response) => {
     ? 'WHERE user_id = :userId OR LOWER(customer_email) = :email'
     : 'WHERE user_id = :userId';
   const [rows] = await pool.query(
-    `SELECT id, user_id, service_type, service_id, customer_name, customer_email, customer_phone,
-            travelers, start_date, end_date, budget, notes, status, created_at, updated_at
-     FROM reservations
+    `SELECT r.*, hr.name AS hotel_room_name,
+            du.name AS driver_name, du.phone AS driver_phone, du.avatar AS driver_avatar,
+            v.id AS vehicle_id, v.make AS vehicle_make, v.model AS vehicle_model,
+            v.license_plate, v.capacity AS vehicle_capacity, v.vehicle_type
+     FROM reservations r
+     LEFT JOIN hotel_rooms hr ON hr.id = r.hotel_room_id
+     LEFT JOIN users du ON du.id = r.assigned_driver_id
+     LEFT JOIN vehicles v ON v.driver_id = r.assigned_driver_id AND v.active = 1
      ${whereClause}
-     ORDER BY created_at DESC
+     ORDER BY r.created_at DESC
      LIMIT 80`,
     { userId: request.user.id, email: userEmail }
   );
@@ -1569,7 +2099,7 @@ app.get('/api/admin/users', requireAdmin, async (request, response) => {
 app.put('/api/admin/users/:id', requireAdmin, async (request, response) => {
   try {
     const id = Number(request.params.id);
-    const role = request.body.role === 'admin' ? 'admin' : 'cliente';
+    const role = normalizeRole(request.body.role);
     const userData = validateUserPayload(request.body, { requirePassword: false });
 
     if (!Number.isFinite(id)) {
@@ -1671,13 +2201,13 @@ app.put('/api/admin/users/:id', requireAdmin, async (request, response) => {
 
 app.patch('/api/admin/users/:id/role', requireAdmin, async (request, response) => {
   const id = Number(request.params.id);
-  const role = request.body.role === 'admin' ? 'admin' : 'cliente';
+  const role = normalizeRole(request.body.role);
 
   if (!Number.isFinite(id)) {
     return response.status(422).json({ message: 'ID invÃ¡lido.' });
   }
 
-  if (Number(request.user.id) === id && role !== 'admin') {
+  if (Number(request.admin.id) === id && role !== 'admin') {
     return response.status(422).json({ message: 'NÃ£o pode remover o privilÃ©gio da prÃ³pria sessÃ£o.' });
   }
 
@@ -1739,6 +2269,10 @@ app.delete('/api/admin/users/:id', requireAdmin, async (request, response) => {
     }
 
     demoUsers.splice(index, 1);
+    const profileIndex = demoDriverProfiles.findIndex((item) => Number(item.user_id) === id);
+    const vehicleIndex = demoVehicles.findIndex((item) => Number(item.driver_id) === id);
+    if (profileIndex >= 0) demoDriverProfiles.splice(profileIndex, 1);
+    if (vehicleIndex >= 0) demoVehicles.splice(vehicleIndex, 1);
     return response.json({ ok: true, message: 'Utilizador eliminado.' });
   }
 
@@ -1756,8 +2290,236 @@ app.delete('/api/admin/users/:id', requireAdmin, async (request, response) => {
     return response.status(422).json({ message: 'O administrador raiz dchivela nÃ£o pode ser eliminado.' });
   }
 
+  await pool.query('DELETE FROM vehicles WHERE driver_id = :id', { id });
+  await pool.query('DELETE FROM driver_profiles WHERE user_id = :id', { id });
   await pool.query('DELETE FROM users WHERE id = :id', { id });
   return response.json({ ok: true, message: 'Utilizador eliminado.' });
+});
+
+app.get('/api/admin/drivers', requireAdmin, async (request, response) => {
+  if (!pool) {
+    const drivers = demoUsers
+      .filter((user) => user.role === 'motorista')
+      .map((user) => {
+        const profile = demoDriverProfiles.find((item) => Number(item.user_id) === Number(user.id));
+        const vehicle = demoVehicles.find((item) => Number(item.driver_id) === Number(user.id));
+        return toPublicDriver({ ...user, ...profile, ...vehicle, user_id: user.id });
+      });
+    return response.json({ drivers, source: 'demo' });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT u.id AS user_id, u.username, u.name, u.phone, u.avatar,
+            dp.bio, dp.license_number, dp.availability, dp.approved,
+            dp.current_latitude, dp.current_longitude,
+            v.id AS vehicle_id, v.make AS vehicle_make, v.model AS vehicle_model,
+            v.vehicle_year, v.license_plate, v.capacity AS vehicle_capacity,
+            v.vehicle_type, v.images_json AS vehicle_images_json
+     FROM users u
+     LEFT JOIN driver_profiles dp ON dp.user_id = u.id
+     LEFT JOIN vehicles v ON v.driver_id = u.id AND v.active = 1
+     WHERE u.role = 'motorista'
+     ORDER BY u.name ASC`
+  );
+
+  return response.json({ drivers: rows.map(toPublicDriver), source: 'mysql' });
+});
+
+app.put('/api/admin/drivers/:userId', requireAdmin, async (request, response) => {
+  try {
+    const userId = Number(request.params.userId);
+    const payload = request.body;
+    const availability = ['offline', 'livre', 'ocupado'].includes(payload.availability)
+      ? payload.availability
+      : 'offline';
+    const vehicle = payload.vehicle || {};
+
+    if (!Number.isFinite(userId)) {
+      return response.status(422).json({ message: 'Motorista invalido.' });
+    }
+
+    if (!pool) {
+      const user = demoUsers.find((item) => Number(item.id) === userId && item.role === 'motorista');
+
+      if (!user) {
+        return response.status(404).json({ message: 'Motorista nao encontrado.' });
+      }
+
+      let profile = demoDriverProfiles.find((item) => Number(item.user_id) === userId);
+      if (!profile) {
+        profile = { user_id: userId };
+        demoDriverProfiles.push(profile);
+      }
+      Object.assign(profile, {
+        bio: payload.bio || '',
+        license_number: payload.licenseNumber || '',
+        availability,
+        approved: Boolean(payload.approved),
+        current_latitude: payload.latitude ?? null,
+        current_longitude: payload.longitude ?? null
+      });
+
+      if (vehicle.make && vehicle.model && vehicle.licensePlate) {
+        let storedVehicle = demoVehicles.find((item) => Number(item.driver_id) === userId);
+        if (!storedVehicle) {
+          storedVehicle = { id: Date.now(), driver_id: userId };
+          demoVehicles.push(storedVehicle);
+        }
+        Object.assign(storedVehicle, {
+          vehicle_id: storedVehicle.id,
+          vehicle_make: vehicle.make,
+          vehicle_model: vehicle.model,
+          vehicle_year: Number(vehicle.year || 0) || null,
+          license_plate: vehicle.licensePlate,
+          vehicle_capacity: Math.max(1, Number(vehicle.capacity || 4)),
+          vehicle_type: vehicle.type || '',
+          vehicle_images_json: JSON.stringify(vehicle.images || [])
+        });
+      }
+
+      return response.json({ ok: true, message: 'Perfil de motorista atualizado.' });
+    }
+
+    const [userRows] = await pool.query(
+      `SELECT id FROM users WHERE id = :userId AND role = 'motorista' LIMIT 1`,
+      { userId }
+    );
+
+    if (!userRows[0]) {
+      return response.status(404).json({ message: 'Promova o utilizador a motorista antes de criar o perfil.' });
+    }
+
+    await pool.query(
+      `INSERT INTO driver_profiles
+       (user_id, bio, license_number, availability, approved, current_latitude, current_longitude)
+       VALUES (:userId, :bio, :licenseNumber, :availability, :approved, :latitude, :longitude)
+       ON DUPLICATE KEY UPDATE
+         bio = VALUES(bio),
+         license_number = VALUES(license_number),
+         availability = VALUES(availability),
+         approved = VALUES(approved),
+         current_latitude = VALUES(current_latitude),
+         current_longitude = VALUES(current_longitude)`,
+      {
+        userId,
+        bio: payload.bio || '',
+        licenseNumber: payload.licenseNumber || null,
+        availability,
+        approved: payload.approved ? 1 : 0,
+        latitude: payload.latitude !== '' && Number.isFinite(Number(payload.latitude)) ? Number(payload.latitude) : null,
+        longitude: payload.longitude !== '' && Number.isFinite(Number(payload.longitude)) ? Number(payload.longitude) : null
+      }
+    );
+
+    if (vehicle.make && vehicle.model && vehicle.licensePlate) {
+      const [plateRows] = await pool.query(
+        `SELECT id FROM vehicles
+         WHERE license_plate = :licensePlate AND driver_id <> :driverId
+         LIMIT 1`,
+        { licensePlate: vehicle.licensePlate, driverId: userId }
+      );
+
+      if (plateRows[0]) {
+        return response.status(409).json({ message: 'Esta matricula ja esta associada a outro motorista.' });
+      }
+
+      await pool.query(
+        `INSERT INTO vehicles
+         (driver_id, make, model, vehicle_year, license_plate, capacity, vehicle_type, images_json, active)
+         VALUES (:driverId, :make, :model, :year, :licensePlate, :capacity, :type, :images, 1)
+         ON DUPLICATE KEY UPDATE
+           make = VALUES(make),
+           model = VALUES(model),
+           vehicle_year = VALUES(vehicle_year),
+           license_plate = VALUES(license_plate),
+           capacity = VALUES(capacity),
+           vehicle_type = VALUES(vehicle_type),
+           images_json = VALUES(images_json),
+           active = 1`,
+        {
+          driverId: userId,
+          make: vehicle.make,
+          model: vehicle.model,
+          year: Number(vehicle.year || 0) || null,
+          licensePlate: vehicle.licensePlate,
+          capacity: Math.max(1, Number(vehicle.capacity || 4)),
+          type: vehicle.type || null,
+          images: JSON.stringify(vehicle.images || [])
+        }
+      );
+    }
+
+    return response.json({ ok: true, message: 'Perfil de motorista atualizado.' });
+  } catch (error) {
+    const status = error.code === 'ER_DUP_ENTRY' ? 409 : 422;
+    return response.status(status).json({ message: error.message });
+  }
+});
+
+app.patch('/api/admin/reservations/:id/assign-driver', requireAdmin, async (request, response) => {
+  const reservationId = Number(request.params.id);
+  const driverId = Number(request.body.driverId);
+
+  if (!Number.isFinite(reservationId) || !Number.isFinite(driverId)) {
+    return response.status(422).json({ message: 'Reserva ou motorista invalido.' });
+  }
+
+  if (!pool) {
+    const reservation = demoReservations.find((item) => Number(item.id) === reservationId);
+    const driver = demoDriverProfiles.find(
+      (item) => Number(item.user_id) === driverId && item.approved
+    );
+
+    if (!reservation || reservation.service_type !== 'tour' || !driver) {
+      return response.status(404).json({ message: 'Reserva ou motorista nao encontrado.' });
+    }
+
+    reservation.assigned_driver_id = driverId;
+    reservation.status = 'confirmada';
+    if (reservation.is_immediate) {
+      driver.availability = 'ocupado';
+    }
+    return response.json({ ok: true, reservation: toPublicReservation(reservation) });
+  }
+
+  const [driverRows] = await pool.query(
+    `SELECT u.id
+     FROM users u
+     JOIN driver_profiles dp ON dp.user_id = u.id
+     WHERE u.id = :driverId AND u.role = 'motorista' AND dp.approved = 1
+     LIMIT 1`,
+    { driverId }
+  );
+
+  if (!driverRows[0]) {
+    return response.status(422).json({ message: 'Escolha um motorista aprovado.' });
+  }
+
+  const [reservationRows] = await pool.query(
+    `SELECT id, service_type, is_immediate FROM reservations WHERE id = :reservationId LIMIT 1`,
+    { reservationId }
+  );
+  const reservation = reservationRows[0];
+
+  if (!reservation || reservation.service_type !== 'tour') {
+    return response.status(404).json({ message: 'Reserva de tour nao encontrada.' });
+  }
+
+  await pool.query(
+    `UPDATE reservations
+     SET assigned_driver_id = :driverId, status = 'confirmada'
+     WHERE id = :reservationId`,
+    { driverId, reservationId }
+  );
+
+  if (reservation.is_immediate) {
+    await pool.query(
+      `UPDATE driver_profiles SET availability = 'ocupado' WHERE user_id = :driverId`,
+      { driverId }
+    );
+  }
+
+  return response.json({ ok: true, message: 'Motorista atribuido e tour confirmado.' });
 });
 
 app.get('/api/admin/reservations', requireAdmin, async (request, response) => {
@@ -1769,10 +2531,15 @@ app.get('/api/admin/reservations', requireAdmin, async (request, response) => {
   }
 
   const [rows] = await pool.query(
-    `SELECT id, user_id, service_type, service_id, customer_name, customer_email, customer_phone,
-            travelers, start_date, end_date, budget, notes, status, created_at, updated_at
-     FROM reservations
-     ORDER BY created_at DESC
+    `SELECT r.*, hr.name AS hotel_room_name,
+            du.name AS driver_name, du.phone AS driver_phone, du.avatar AS driver_avatar,
+            v.id AS vehicle_id, v.make AS vehicle_make, v.model AS vehicle_model,
+            v.license_plate, v.capacity AS vehicle_capacity, v.vehicle_type
+     FROM reservations r
+     LEFT JOIN hotel_rooms hr ON hr.id = r.hotel_room_id
+     LEFT JOIN users du ON du.id = r.assigned_driver_id
+     LEFT JOIN vehicles v ON v.driver_id = r.assigned_driver_id AND v.active = 1
+     ORDER BY r.created_at DESC
      LIMIT 200`
   );
 
@@ -1994,6 +2761,17 @@ app.get('/api/admin/overview', requireAdmin, async (request, response) => {
     contacts,
     source: 'mysql'
   });
+});
+
+app.use(express.static(distRoot));
+
+app.get(/^(?!\/api).*/, async (request, response, next) => {
+  try {
+    await fs.access(indexFile);
+    return response.sendFile(indexFile);
+  } catch (error) {
+    return next();
+  }
 });
 
 await connectDatabase();
