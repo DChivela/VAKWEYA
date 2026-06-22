@@ -1,6 +1,8 @@
 import {
+  Ban,
   Bot,
   CalendarDays,
+  CheckCircle2,
   CircleDollarSign,
   Filter,
   HelpCircle,
@@ -31,11 +33,13 @@ import {
   updateAdminUser,
   updateAdminUserRole,
   updateAdminAssistantFaq,
+  updateAdminReservationStatus,
   updateAdminResource
 } from '../services/api';
 import { FileUploadField, MultiImageUploadField } from './FileUploadField';
 import { DriverAdminPanel } from './DriverAdminPanel';
 import { SectionHeader } from './SectionHeader';
+import { roomCategories, roomCategoryLabel } from '../data/roomCategories';
 
 const tokenKey = 'vakwetu_admin_token';
 const authChangeEvent = 'vakwetu-auth-changed';
@@ -118,6 +122,7 @@ const resourceConfigs = {
     fields: [
       { name: 'hotelId', label: 'Hotel', selectFrom: 'hotels', required: true },
       { name: 'name', label: 'Nome do quarto', required: true },
+      { name: 'category', label: 'Categoria', options: roomCategories, required: true, defaultValue: 'casal' },
       { name: 'price', label: 'Preço por noite', type: 'number', required: true },
       { name: 'capacity', label: 'Capacidade', type: 'number', min: '1', defaultValue: '2' },
       { name: 'stock', label: 'Quantidade disponível', type: 'number', min: '1', defaultValue: '1' },
@@ -316,7 +321,7 @@ function ResourceCreationForm({ activeResource, token, selectedItem, catalog, on
           ) : (
             <label key={field.name} className={field.textarea ? 'field-wide' : ''}>
               {field.label}
-              {field.selectFrom ? (
+              {field.selectFrom || field.options ? (
               <select
                 name={field.name}
                 value={form[field.name]}
@@ -324,8 +329,10 @@ function ResourceCreationForm({ activeResource, token, selectedItem, catalog, on
                 required={field.required}
               >
                 <option value="">Selecionar</option>
-                {(catalog?.[field.selectFrom] || []).map((option) => (
-                  <option key={option.id} value={option.id}>{option.name}</option>
+                {(field.options || catalog?.[field.selectFrom] || []).map((option) => (
+                  <option key={option.id ?? option.value} value={option.id ?? option.value}>
+                    {option.name ?? option.label}
+                  </option>
                 ))}
               </select>
               ) : field.textarea ? (
@@ -866,6 +873,29 @@ export function AdminPanel({ catalog, onContentChanged }) {
     await Promise.all([loadOverview(), onContentChanged?.()]);
   }
 
+  async function handleReservationStatus(reservation, nextStatus) {
+    const actionLabel = nextStatus === 'confirmada' ? 'aprovar' : 'recusar';
+    const confirmed = window.confirm(
+      `${actionLabel === 'aprovar' ? 'Aprovar' : 'Recusar'} a reserva de ${reservation.customerName}?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setStatus({ type: 'loading', message: 'A atualizar reserva...' });
+    try {
+      const payload = await updateAdminReservationStatus(token, reservation.id, nextStatus);
+      await Promise.all([loadReservations(), loadOverview()]);
+      setStatus({
+        type: 'success',
+        message: payload.message || 'Estado da reserva atualizado.'
+      });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    }
+  }
+
   async function handleDeleteContent(item) {
     const confirmed = window.confirm(`Eliminar "${item.name}" deste separador?`);
 
@@ -989,6 +1019,12 @@ export function AdminPanel({ catalog, onContentChanged }) {
             </button>
           </div>
 
+          {status.message && (
+            <p className={`form-status form-status--${status.type}`} role="status">
+              {status.message}
+            </p>
+          )}
+
           <div className="admin-metrics">
             <div>
               <span>Reservas</span>
@@ -1078,6 +1114,27 @@ export function AdminPanel({ catalog, onContentChanged }) {
                     <span>{reservation.travelers} pessoa(s)</span>
                   </div>
                   {reservation.notes && <p>{reservation.notes}</p>}
+                  {reservation.status === 'pendente' &&
+                    ['hotel', 'restaurante'].includes(reservation.serviceType) && (
+                      <div className="reservation-card__actions">
+                        <button
+                          className="button button--success"
+                          type="button"
+                          onClick={() => handleReservationStatus(reservation, 'confirmada')}
+                        >
+                          <CheckCircle2 size={17} />
+                          Aprovar
+                        </button>
+                        <button
+                          className="button button--danger"
+                          type="button"
+                          onClick={() => handleReservationStatus(reservation, 'cancelada')}
+                        >
+                          <Ban size={17} />
+                          Recusar
+                        </button>
+                      </div>
+                    )}
                 </article>
               ))}
               {filteredReservations.length === 0 && (
@@ -1160,6 +1217,7 @@ export function AdminPanel({ catalog, onContentChanged }) {
                             item.type ||
                             item.mood ||
                             item.location ||
+                            (item.category ? roomCategoryLabel(item.category) : '') ||
                             (item.hotelId ? `Hotel #${item.hotelId}` : '') ||
                             'Conteúdo'}
                         </span>

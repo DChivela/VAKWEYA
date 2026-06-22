@@ -2,6 +2,7 @@ import { Calculator, CalendarCheck, CheckCircle2, RotateCcw, Send, Sparkles } fr
 import { useEffect, useMemo, useState } from 'react';
 import { createReservation, getCurrentUser } from '../services/api';
 import { parseReservationSearch } from '../services/reservationLinks';
+import { roomCategoryLabel } from '../data/roomCategories';
 import { SectionHeader } from './SectionHeader';
 
 const authTokenKey = 'vakwetu_user_token';
@@ -383,7 +384,7 @@ export function BookingForm({ destinations, hotels, hotelRooms = [], restaurants
                     <option value="">Escolher quarto</option>
                     {selectedRooms.map((room) => (
                       <option key={room.id} value={room.id}>
-                        {room.name} · {Number(room.price).toLocaleString('pt-AO')} Kz/noite
+                        {roomCategoryLabel(room.category)} · {room.name} · {Number(room.price).toLocaleString('pt-AO')} Kz/noite
                       </option>
                     ))}
                   </select>

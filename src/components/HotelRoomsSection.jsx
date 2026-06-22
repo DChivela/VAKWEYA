@@ -1,6 +1,7 @@
 import { BedDouble, Check, ChevronLeft, ChevronRight, Minus, Plus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { hotelRoomReservationLink } from '../services/reservationLinks';
+import { roomCategories, roomCategoryLabel } from '../data/roomCategories';
 import { SectionHeader } from './SectionHeader';
 
 function RoomOption({ hotel, room }) {
@@ -33,7 +34,7 @@ function RoomOption({ hotel, room }) {
       <div className="room-option__body">
         <div className="room-option__heading">
           <div>
-            <span><BedDouble size={15} /> Quarto disponível</span>
+            <span><BedDouble size={15} /> {roomCategoryLabel(room.category)}</span>
             <h3>{room.name}</h3>
           </div>
           <strong>{Number(room.price).toLocaleString('pt-AO')} Kz <small>/ noite</small></strong>
@@ -75,6 +76,7 @@ function RoomOption({ hotel, room }) {
 }
 
 export function HotelRoomsSection({ hotel, allRooms = [] }) {
+  const [activeCategory, setActiveCategory] = useState('all');
   const rooms = useMemo(
     () => {
       const combined = [
@@ -84,6 +86,12 @@ export function HotelRoomsSection({ hotel, allRooms = [] }) {
       return [...new Map(combined.map((room) => [String(room.id), room])).values()];
     },
     [allRooms, hotel]
+  );
+  const filteredRooms = useMemo(
+    () => activeCategory === 'all'
+      ? rooms
+      : rooms.filter((room) => (room.category || 'casal') === activeCategory),
+    [activeCategory, rooms]
   );
 
   if (!hotel) {
@@ -110,10 +118,37 @@ export function HotelRoomsSection({ hotel, allRooms = [] }) {
           </div>
         </div>
 
+        <div className="room-category-filter" role="tablist" aria-label="Filtrar quartos por categoria">
+          <button
+            type="button"
+            className={activeCategory === 'all' ? 'is-active' : ''}
+            onClick={() => setActiveCategory('all')}
+            role="tab"
+            aria-selected={activeCategory === 'all'}
+          >
+            Todas <span>{rooms.length}</span>
+          </button>
+          {roomCategories.map((category) => {
+            const total = rooms.filter((room) => (room.category || 'casal') === category.value).length;
+            return (
+              <button
+                type="button"
+                key={category.value}
+                className={activeCategory === category.value ? 'is-active' : ''}
+                onClick={() => setActiveCategory(category.value)}
+                role="tab"
+                aria-selected={activeCategory === category.value}
+              >
+                {category.label} <span>{total}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="room-option-list">
-          {rooms.map((room) => <RoomOption hotel={hotel} room={room} key={room.id} />)}
-          {rooms.length === 0 && (
-            <p className="empty-state">Este hotel ainda não publicou tipos de quarto.</p>
+          {filteredRooms.map((room) => <RoomOption hotel={hotel} room={room} key={room.id} />)}
+          {filteredRooms.length === 0 && (
+            <p className="empty-state">Não há quartos publicados nesta categoria.</p>
           )}
         </div>
       </div>

@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS hotel_rooms (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   hotel_id BIGINT UNSIGNED NOT NULL,
   name VARCHAR(180) NOT NULL,
+  category ENUM('suite','solteiro','vip','casal') NOT NULL DEFAULT 'casal',
   description TEXT NULL,
   price_per_night DECIMAL(12,2) NOT NULL DEFAULT 0,
   capacity INT NOT NULL DEFAULT 2,

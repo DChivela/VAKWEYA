@@ -1912,6 +1912,21 @@ textarea:focus {
   background: rgba(254, 226, 226, 0.9);
 }
 
+.button--success {
+  border-color: rgba(22, 163, 74, 0.2);
+  color: #166534;
+  background: #dcfce7;
+}
+
+.reservation-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
 .button--danger:hover {
   border-color: rgba(220, 38, 38, 0.36);
   transform: translateY(-1px);
@@ -2711,6 +2726,51 @@ textarea:focus {
   gap: 20px;
 }
 
+.room-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.room-category-filter button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  background: var(--white);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.room-category-filter button span {
+  display: grid;
+  min-width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  background: #f1f5f9;
+  font-size: 0.75rem;
+}
+
+.room-category-filter button.is-active {
+  border-color: var(--ocean);
+  color: var(--white);
+  background: var(--ocean);
+}
+
+.room-category-filter button.is-active span {
+  color: var(--ocean);
+  background: var(--white);
+}
+
 .room-option {
   display: grid;
   grid-template-columns: minmax(280px, 0.85fr) minmax(0, 1.15fr);
@@ -3504,6 +3564,11 @@ textarea:focus {
   }
 
   .admin-item-actions .button {
+    justify-content: center;
+  }
+
+  .reservation-card__actions .button {
+    flex: 1;
     justify-content: center;
   }
 

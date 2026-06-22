@@ -501,6 +501,9 @@ function normalizeResourcePayload(resource, payload) {
         id: Date.now(),
         hotelId: Number(payload.hotelId),
         name: payload.name,
+        category: ['suite', 'solteiro', 'vip', 'casal'].includes(payload.category)
+          ? payload.category
+          : 'casal',
         description: payload.description,
         price: Number(payload.price || 0),
         capacity: Math.max(1, Number(payload.capacity || 2)),
@@ -634,8 +637,8 @@ async function insertResource(resource, item) {
     case 'hotelRooms': {
       const [result] = await pool.query(
         `INSERT INTO hotel_rooms
-         (hotel_id, name, description, price_per_night, capacity, stock, amenities_json, images_json)
-         VALUES (:hotelId, :name, :description, :price, :capacity, :stock, :amenities, :images)`,
+         (hotel_id, name, category, description, price_per_night, capacity, stock, amenities_json, images_json)
+         VALUES (:hotelId, :name, :category, :description, :price, :capacity, :stock, :amenities, :images)`,
         {
           ...item,
           amenities: JSON.stringify(item.amenities),
@@ -731,6 +734,7 @@ async function updateResource(resource, id, item) {
         `UPDATE hotel_rooms SET
           hotel_id = :hotelId,
           name = :name,
+          category = :category,
           description = :description,
           price_per_night = :price,
           capacity = :capacity,
@@ -926,6 +930,7 @@ async function initializeSchema() {
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       hotel_id BIGINT UNSIGNED NOT NULL,
       name VARCHAR(180) NOT NULL,
+      category ENUM('suite','solteiro','vip','casal') NOT NULL DEFAULT 'casal',
       description TEXT NULL,
       price_per_night DECIMAL(12,2) NOT NULL DEFAULT 0,
       capacity INT NOT NULL DEFAULT 2,
@@ -1131,6 +1136,16 @@ async function initializeSchema() {
     'ALTER TABLE reservations ADD COLUMN room_quantity INT NULL AFTER hotel_room_id'
   ];
 
+  try {
+    await pool.query(
+      "ALTER TABLE hotel_rooms ADD COLUMN category ENUM('suite','solteiro','vip','casal') NOT NULL DEFAULT 'casal' AFTER name"
+    );
+  } catch (error) {
+    if (error.code !== 'ER_DUP_FIELDNAME') {
+      throw error;
+    }
+  }
+
   for (const statement of reservationMigrations) {
     try {
       await pool.query(statement);
@@ -1257,8 +1272,8 @@ async function seedHotelRooms() {
 
     await pool.query(
       `INSERT INTO hotel_rooms
-       (hotel_id, name, description, price_per_night, capacity, stock, amenities_json, images_json)
-       VALUES (:hotelId, :name, :description, :price, :capacity, :stock, :amenities, :images)`,
+       (hotel_id, name, category, description, price_per_night, capacity, stock, amenities_json, images_json)
+       VALUES (:hotelId, :name, :category, :description, :price, :capacity, :stock, :amenities, :images)`,
       {
         ...room,
         hotelId: databaseHotel.id,
@@ -1301,6 +1316,7 @@ async function readCatalogFromDb() {
     id: item.id,
     hotelId: item.hotel_id,
     name: item.name,
+    category: item.category || 'casal',
     description: item.description,
     price: normalizeNumber(item.price_per_night),
     capacity: Number(item.capacity || 1),
@@ -2454,6 +2470,81 @@ app.put('/api/admin/drivers/:userId', requireAdmin, async (request, response) =>
     const status = error.code === 'ER_DUP_ENTRY' ? 409 : 422;
     return response.status(status).json({ message: error.message });
   }
+});
+
+app.patch('/api/admin/reservations/:id/status', requireAdmin, async (request, response) => {
+  const reservationId = Number(request.params.id);
+  const nextStatus = request.body.status;
+  const allowedStatuses = ['pendente', 'confirmada', 'cancelada', 'concluida'];
+
+  if (!Number.isFinite(reservationId) || !allowedStatuses.includes(nextStatus)) {
+    return response.status(422).json({ message: 'Reserva ou estado invalido.' });
+  }
+
+  if (!pool) {
+    const reservation = demoReservations.find((item) => Number(item.id) === reservationId);
+
+    if (!reservation) {
+      return response.status(404).json({ message: 'Reserva nao encontrada.' });
+    }
+
+    if (reservation.service_type === 'tour' && nextStatus === 'confirmada' && !reservation.assigned_driver_id) {
+      return response.status(422).json({ message: 'Atribua um motorista antes de confirmar a tour.' });
+    }
+
+    reservation.status = nextStatus;
+    reservation.updated_at = new Date().toISOString();
+
+    if (
+      reservation.assigned_driver_id &&
+      ['cancelada', 'concluida'].includes(nextStatus)
+    ) {
+      const driver = demoDriverProfiles.find(
+        (item) => Number(item.user_id) === Number(reservation.assigned_driver_id)
+      );
+      if (driver) driver.availability = 'livre';
+    }
+
+    return response.json({
+      ok: true,
+      reservation: toPublicReservation(reservation),
+      message: nextStatus === 'confirmada' ? 'Reserva aprovada.' : 'Estado da reserva atualizado.'
+    });
+  }
+
+  const [rows] = await pool.query(
+    `SELECT id, service_type, status, assigned_driver_id
+     FROM reservations
+     WHERE id = :reservationId
+     LIMIT 1`,
+    { reservationId }
+  );
+  const reservation = rows[0];
+
+  if (!reservation) {
+    return response.status(404).json({ message: 'Reserva nao encontrada.' });
+  }
+
+  if (reservation.service_type === 'tour' && nextStatus === 'confirmada' && !reservation.assigned_driver_id) {
+    return response.status(422).json({ message: 'Atribua um motorista antes de confirmar a tour.' });
+  }
+
+  await pool.query(
+    `UPDATE reservations SET status = :nextStatus WHERE id = :reservationId`,
+    { reservationId, nextStatus }
+  );
+
+  if (reservation.assigned_driver_id && ['cancelada', 'concluida'].includes(nextStatus)) {
+    await pool.query(
+      `UPDATE driver_profiles SET availability = 'livre' WHERE user_id = :driverId`,
+      { driverId: reservation.assigned_driver_id }
+    );
+  }
+
+  return response.json({
+    ok: true,
+    message: nextStatus === 'confirmada' ? 'Reserva aprovada.' : 'Estado da reserva atualizado.'
+  });
 });
 
 app.patch('/api/admin/reservations/:id/assign-driver', requireAdmin, async (request, response) => {

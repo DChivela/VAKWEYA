@@ -286,6 +286,15 @@ Ao clicar na imagem ou no botao do hotel, abre a selecao dedicada de quartos em:
 
 Cada quarto apresenta galeria, descricao, comodidades, capacidade, stock, preco por noite e seletor de quantidade.
 
+Os quartos sao classificados por categoria:
+
+- `suite` - Suite
+- `solteiro` - Solteiro
+- `vip` - VIP
+- `casal` - Casal
+
+A pagina do hotel permite filtrar a listagem por estas categorias. No painel administrativo, a categoria e escolhida por combobox.
+
 ### 6.4 Restaurantes
 
 Lista restaurantes com:
@@ -506,6 +515,8 @@ Cada reserva mostra:
 - Estado
 - Observacoes
 
+Reservas pendentes de hotel e restaurante possuem botoes `Aprovar` e `Recusar`. A aprovacao altera o estado para `confirmada`; a recusa altera para `cancelada`. O cliente ve a atualizacao no historico da conta.
+
 ### 10.3 Reservas Recentes
 
 Mostra pedidos recentes de reserva:
@@ -695,6 +706,8 @@ Guarda:
 - Motorista atribuido
 - Quarto e quantidade reservada
 
+A tabela `hotel_rooms` possui a coluna `category`. Em bases existentes, a inicializacao do servidor cria esta coluna automaticamente com `casal` como valor padrao, sem eliminar os quartos existentes.
+
 ### 13.3 assistant_faqs
 
 Guarda a base de conhecimento do assistente:
@@ -748,6 +761,7 @@ PATCH /api/admin/users/:id/role
 DELETE /api/admin/users/:id
 GET /api/admin/drivers
 PUT /api/admin/drivers/:userId
+PATCH /api/admin/reservations/:id/status
 PATCH /api/admin/reservations/:id/assign-driver
 GET /api/admin/assistant/faqs
 POST /api/admin/assistant/faqs

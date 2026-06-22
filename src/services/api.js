@@ -155,6 +155,14 @@ export async function getAdminReservations(token) {
   return request('/admin/reservations', { token });
 }
 
+export async function updateAdminReservationStatus(token, reservationId, status) {
+  return request(`/admin/reservations/${reservationId}/status`, {
+    method: 'PATCH',
+    token,
+    body: { status }
+  });
+}
+
 export async function getAdminAssistantFaqs(token) {
   return request('/admin/assistant/faqs', { token });
 }
